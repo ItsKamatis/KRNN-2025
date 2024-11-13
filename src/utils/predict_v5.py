@@ -22,7 +22,8 @@ class Predictor:
         self.model = self._load_model(model_path)
         self.feature_engineer = FeatureEngineer(FeatureConfig())
 
-    def _load_config(self, config_path: str) -> Dict:
+    @staticmethod
+    def _load_config(config_path: str) -> Dict:
         """Load configuration file."""
         with open(config_path) as f:
             return yaml.safe_load(f)

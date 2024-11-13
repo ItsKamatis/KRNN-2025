@@ -39,7 +39,8 @@ def sample_batch():
 class TestKRNN:
     """Test KRNN model functionality."""
 
-    def test_model_initialization(self, model):
+    @staticmethod
+    def test_model_initialization(model):
         """Test model creates with correct architecture."""
         assert isinstance(model, KRNN)
         assert model.rnn.input_size == model.config.hidden_dim
@@ -47,7 +48,8 @@ class TestKRNN:
         assert model.rnn.num_layers == model.config.num_layers
         assert model.rnn.bidirectional == model.config.bidirectional
 
-    def test_forward_pass(self, model, sample_batch):
+    @staticmethod
+    def test_forward_pass(model, sample_batch):
         """Test forward pass returns correct shapes."""
         features, _ = sample_batch
         logits, attention = model(features)
@@ -62,7 +64,8 @@ class TestKRNN:
         assert not torch.isnan(attention).any()
         assert (attention >= 0).all() and (attention <= 1).all()
 
-    def test_prediction(self, model, sample_batch):
+    @staticmethod
+    def test_prediction(model, sample_batch):
         """Test prediction generates valid probabilities."""
         features, _ = sample_batch
         with torch.no_grad():
@@ -81,7 +84,8 @@ class TestKRNN:
         logits, attention = model(features)
         assert logits.size(0) == batch_size
 
-    def test_save_load(self, model, tmp_path):
+    @staticmethod
+    def test_save_load(model, tmp_path):
         """Test model save and load functionality."""
         # Save model
         save_path = tmp_path / "model.pt"
@@ -110,7 +114,8 @@ class TestKRNNPredictor:
     def predictor(self, model):
         return KRNNPredictor(model)
 
-    def test_train_step(self, predictor, sample_batch):
+    @staticmethod
+    def test_train_step(predictor, sample_batch):
         """Test training step."""
         features, targets = sample_batch
         loss, logits = predictor.train_step(features, targets)
@@ -119,7 +124,8 @@ class TestKRNNPredictor:
         assert logits.size() == (features.size(0), predictor.model.config.num_classes)
         assert not torch.isnan(torch.tensor(loss))
 
-    def test_validation(self, predictor, sample_batch):
+    @staticmethod
+    def test_validation(predictor, sample_batch):
         """Test validation step."""
         features, targets = sample_batch
         with torch.no_grad():
@@ -128,7 +134,8 @@ class TestKRNNPredictor:
         assert isinstance(loss, float)
         assert not torch.isnan(torch.tensor(loss))
 
-    def test_checkpoint_save_load(self, predictor, tmp_path):
+    @staticmethod
+    def test_checkpoint_save_load(predictor, tmp_path):
         """Test checkpoint functionality."""
         save_path = tmp_path / "checkpoint.pt"
         predictor.save_checkpoint(str(save_path))

@@ -94,7 +94,8 @@ class ExperimentManager:
                 items.append((new_key, str(v)))
         return dict(items)
 
-    def log_metrics(self, metrics: Dict[str, float], step: Optional[int] = None) -> None:
+    @staticmethod
+    def log_metrics(metrics: Dict[str, float], step: Optional[int] = None) -> None:
         """
         Log a dictionary of metrics to MLflow.
 
@@ -106,7 +107,8 @@ class ExperimentManager:
             mlflow.log_metric(key, value, step=step)
         logger.debug(f"Logged metrics: {metrics} at step: {step}")
 
-    def log_param(self, key: str, value: Any) -> None:
+    @staticmethod
+    def log_param(key: str, value: Any) -> None:
         """
         Log a single parameter to MLflow.
 
@@ -117,7 +119,8 @@ class ExperimentManager:
         mlflow.log_param(key, value)
         logger.debug(f"Logged param: {key} = {value}")
 
-    def log_artifact(self, local_path: str, artifact_path: Optional[str] = None) -> None:
+    @staticmethod
+    def log_artifact(local_path: str, artifact_path: Optional[str] = None) -> None:
         """
         Log an artifact (file or directory) to MLflow.
 

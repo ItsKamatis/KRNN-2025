@@ -183,7 +183,8 @@ class FeaturePipeline:
             logger.error(f"Error processing {file_path.stem}: {str(e)}")
             return None
 
-    def _save_features(self, features: pd.DataFrame, output_dir: Path) -> None:
+    @staticmethod
+    def _save_features(features: pd.DataFrame, output_dir: Path) -> None:
         """Save processed features."""
         output_path = output_dir / 'features.parquet'
         features.to_parquet(output_path)
