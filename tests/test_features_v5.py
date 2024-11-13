@@ -49,7 +49,8 @@ def engineer(feature_config):
 class TestFeatureEngineer:
     """Test feature engineering calculations."""
 
-    def test_price_features(self, engineer, sample_stock_data):
+    @staticmethod
+    def test_price_features(engineer, sample_stock_data):
         """Test price-based feature calculations."""
         features = engineer._calculate_price_features(sample_stock_data)
 
@@ -70,7 +71,8 @@ class TestFeatureEngineer:
         assert (features['HL_Spread'] ==
                 sample_stock_data['High'] - sample_stock_data['Low']).all()
 
-    def test_technical_indicators(self, engineer, sample_stock_data):
+    @staticmethod
+    def test_technical_indicators(engineer, sample_stock_data):
         """Test technical indicator calculations."""
         features = engineer._calculate_indicators(sample_stock_data)
 
@@ -91,7 +93,8 @@ class TestFeatureEngineer:
         if 'BB_UPPER' in features.columns:
             assert (features['BB_UPPER'] > features['BB_LOWER']).all()
 
-    def test_volume_features(self, engineer, sample_stock_data):
+    @staticmethod
+    def test_volume_features(engineer, sample_stock_data):
         """Test volume feature calculations."""
         features = engineer._calculate_volume_features(sample_stock_data)
 
@@ -108,7 +111,8 @@ class TestFeatureEngineer:
             check_names=False
         )
 
-    def test_returns(self, engineer, sample_stock_data):
+    @staticmethod
+    def test_returns(engineer, sample_stock_data):
         """Test return-based feature calculations."""
         features = engineer._calculate_returns(sample_stock_data)
 
@@ -126,7 +130,8 @@ class TestFeatureEngineer:
         assert 'ReturnVolatility' in features.columns
         assert not features['ReturnVolatility'].isnull().all()
 
-    def test_complete_feature_calculation(self, engineer, sample_stock_data):
+    @staticmethod
+    def test_complete_feature_calculation(engineer, sample_stock_data):
         """Test end-to-end feature calculation."""
         features = engineer.calculate_features(sample_stock_data)
 
@@ -164,7 +169,8 @@ class TestFeaturePipeline:
 
         return stock_dir
 
-    def test_process_stock(self, sample_stock_files):
+    @staticmethod
+    def test_process_stock(sample_stock_files):
         """Test processing single stock."""
         pipeline = FeaturePipeline()
         stock_file = next(sample_stock_files.glob('*.csv'))
@@ -176,7 +182,8 @@ class TestFeaturePipeline:
         assert not features.empty
         assert not features.isnull().any().any()
 
-    def test_process_stocks(self, sample_stock_files):
+    @staticmethod
+    def test_process_stocks(sample_stock_files):
         """Test processing multiple stocks."""
         pipeline = FeaturePipeline()
         output_dir = sample_stock_files.parent / "features"
@@ -195,7 +202,8 @@ class TestFeaturePipeline:
         # Check output file
         assert (output_dir / 'features.parquet').exists()
 
-    def test_error_handling(self, sample_stock_files):
+    @staticmethod
+    def test_error_handling(sample_stock_files):
         """Test error handling for invalid files."""
         pipeline = FeaturePipeline()
 

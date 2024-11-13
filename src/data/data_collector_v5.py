@@ -61,7 +61,8 @@ class DataCollector:
             logger.error(f"Error fetching NASDAQ-100 tickers: {e}")
             raise
 
-    def download_stock_data(self, ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+    @staticmethod
+    def download_stock_data(ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """Download stock data using yfinance."""
         try:
             stock = yf.Ticker(ticker)
@@ -79,7 +80,8 @@ class DataCollector:
             logger.error(f"Error downloading {ticker}: {e}")
             return None
 
-    def calculate_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    @staticmethod
+    def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
         """Calculate technical indicators."""
         try:
             # Basic indicators

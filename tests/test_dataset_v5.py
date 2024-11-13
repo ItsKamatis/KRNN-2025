@@ -34,18 +34,21 @@ def dataset(sample_stock_data):
 class TestStockDataset:
     """Test StockDataset functionality."""
 
-    def test_initialization(self, dataset, sample_stock_data):
+    @staticmethod
+    def test_initialization(dataset, sample_stock_data):
         """Test dataset initialization."""
         assert isinstance(dataset, StockDataset)
         assert len(dataset.feature_cols) == len(sample_stock_data.columns) - 3  # Exclude Date, Ticker, Label
         assert dataset.sequence_length == 10
 
-    def test_valid_indices(self, dataset):
+    @staticmethod
+    def test_valid_indices(dataset):
         """Test valid indices generation."""
         assert len(dataset.valid_indices) > 0
         assert dataset.valid_indices[0] >= dataset.sequence_length - 1
 
-    def test_getitem(self, dataset):
+    @staticmethod
+    def test_getitem(dataset):
         """Test item retrieval."""
         features, target = dataset[0]
 
@@ -60,7 +63,8 @@ class TestStockDataset:
         # Check value ranges
         assert target >= 0 and target < 3  # 0-based indexing
 
-    def test_length(self, dataset):
+    @staticmethod
+    def test_length(dataset):
         """Test dataset length."""
         assert len(dataset) == len(dataset.valid_indices)
         assert len(dataset) > 0
@@ -88,7 +92,8 @@ class TestDataModule:
 
         return data_dir
 
-    def test_setup(self, data_module, sample_data_files):
+    @staticmethod
+    def test_setup(data_module, sample_data_files):
         """Test data module setup."""
         data_module.setup(sample_data_files)
 
@@ -96,7 +101,8 @@ class TestDataModule:
         assert data_module.val_dataset is not None
         assert data_module.test_dataset is not None
 
-    def test_dataloaders(self, data_module, sample_data_files):
+    @staticmethod
+    def test_dataloaders(data_module, sample_data_files):
         """Test dataloader creation."""
         data_module.setup(sample_data_files)
         loaders = data_module.get_dataloaders()
@@ -117,7 +123,8 @@ class TestTimeSeriesSplitter:
     def splitter(self):
         return TimeSeriesSplitter(n_splits=3, gap_days=5, test_size=20)
 
-    def test_split(self, splitter, sample_stock_data):
+    @staticmethod
+    def test_split(splitter, sample_stock_data):
         """Test time series splitting."""
         splits = splitter.split(sample_stock_data)
 
