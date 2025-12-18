@@ -34,33 +34,39 @@ class Trainer:
         self.criterion = nn.MSELoss()
 
     def train_epoch(self, loader: torch.utils.data.DataLoader) -> float:
-        """Runs one epoch of training."""
         self.model.train()
         total_loss = 0.0
 
         for batch_idx, (features, targets) in enumerate(loader):
             features = features.to(self.device)
-            targets = targets.to(self.device)
+            # FIX: Squeeze target from [Batch, 1] to [Batch] to match model output
+            targets = targets.to(self.device).squeeze(-1)
 
-            # Reset gradients
             self.optimizer.zero_grad()
-
-            # Forward pass
             preds = self.model(features)
 
-            # Calculate loss (Regression: MSE)
-            # Ensure targets are float and shape matches preds
             loss = self.criterion(preds, targets)
-
-            # Backward pass
             loss.backward()
-
-            # Clip gradients to prevent explosion (common in RNNs)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
             self.optimizer.step()
 
             total_loss += loss.item()
+
+        return total_loss / len(loader)
+
+    def validate(self, loader: torch.utils.data.DataLoader) -> float:
+        self.model.eval()
+        total_loss = 0.0
+
+        with torch.no_grad():
+            for features, targets in loader:
+                features = features.to(self.device)
+                # FIX: Squeeze target here too
+                targets = targets.to(self.device).squeeze(-1)
+
+                preds = self.model(features)
+                loss = self.criterion(preds, targets)
+                total_loss += loss.item()
 
         return total_loss / len(loader)
 

@@ -10,31 +10,18 @@ logger = logging.getLogger(__name__)
 def get_residuals(model: torch.nn.Module,
                   dataloader: torch.utils.data.DataLoader,
                   device: str) -> np.ndarray:
-    """
-    Runs the model on the validation set to calculate errors (residuals).
-
-    Args:
-        model: The trained KRNNRegressor.
-        dataloader: Validation dataloader.
-        device: 'cuda' or 'cpu'.
-
-    Returns:
-        residuals: Array of (y_true - y_pred).
-    """
     model.eval()
     residuals = []
 
     with torch.no_grad():
         for features, targets in dataloader:
             features = features.to(device)
-            targets = targets.to(device).float()
+            # FIX: Squeeze targets to match preds shape [Batch]
+            targets = targets.to(device).squeeze(-1).float()
 
-            # 1. Get Prediction (Log Return)
             preds = model(features)
 
-            # 2. Calculate Residuals (Actual - Predicted)
-            # If Result < 0: Model was too optimistic (Price dropped more than expected)
-            # If Result > 0: Model was too pessimistic
+            # Now shapes align: [Batch] - [Batch]
             batch_residuals = targets - preds
             residuals.append(batch_residuals.cpu().numpy())
 
