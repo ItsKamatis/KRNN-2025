@@ -62,7 +62,7 @@ training:
     patience: 5
     factor: 0.5
   patience: 10          # Early stopping patience
-  min_delta: 1e-5       # Minimum improvement required
+  min_delta: 0.00001       # Minimum improvement required
   scheduler_patience: 5 # Reduce LR after 5 epochs of no improvement
   scheduler_factor: 0.5 # Halve the
 
