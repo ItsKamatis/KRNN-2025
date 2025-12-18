@@ -88,3 +88,10 @@ logging:
 # Environment settings
 environment: "development"
 debug: true
+
+# Portfolio Settings
+portfolio:
+  top_n_assets: 10          # The Funnel: How many winners to select for optimization
+  risk_confidence: 0.95     # CVaR confidence level (95% is standard for daily)
+  n_simulations: 1000       # Monte Carlo scenarios per asset
+  target_return_factor: 0.8 # Target 80% of the average winner's return (Feasibility buffer)

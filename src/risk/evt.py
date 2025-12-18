@@ -13,19 +13,20 @@ def get_residuals(model: torch.nn.Module,
     model.eval()
     residuals = []
 
-    with torch.no_grad():
-        for features, targets in dataloader:
-            features = features.to(device)
-            # FIX: Squeeze targets to match preds shape [Batch]
-            targets = targets.to(device).squeeze(-1).float()
-
-            preds = model(features)
-
-            # Now shapes align: [Batch] - [Batch]
-            batch_residuals = targets - preds
-            residuals.append(batch_residuals.cpu().numpy())
-
-    return np.concatenate(residuals)
+    def get_residuals(model: torch.nn.Module,
+                      dataloader: torch.utils.data.DataLoader,
+                      device: str) -> np.ndarray:
+        model.eval()
+        residuals = []
+        with torch.no_grad():
+            for features, targets in dataloader:
+                features = features.to(device)
+                # Squeeze targets to match preds shape [Batch]
+                targets = targets.to(device).squeeze(-1).float()
+                preds = model(features)
+                batch_residuals = targets - preds
+                residuals.append(batch_residuals.cpu().numpy())
+        return np.concatenate(residuals)
 
 
 class EVTEngine:
@@ -43,38 +44,23 @@ class EVTEngine:
         self.tail_fraction = tail_fraction
 
     def analyze_tails(self, residuals: np.ndarray) -> Dict[str, float]:
-        """
-        Main function to estimate tail risk metrics.
-        """
-        # 1. Isolate "Losses"
-        # We care about the Left Tail of returns, which corresponds to negative residuals.
-        # We negate them to deal with positive numbers: Loss = -(y_true - y_pred)
-        # We only look at cases where we lost money (or lost more than predicted).
+        # Isolate "Losses" (Left Tail of Returns = Negative Residuals)
         losses = -residuals
-
-        # Filter for the "Right Tail" of the Loss distribution (which is the Left Tail of returns)
-        # We sort descending: L_1 >= L_2 >= ...
         losses = np.sort(losses)[::-1]
 
-        # 2. Determine Threshold 'k' (Number of exceedances)
         n = len(losses)
         k = int(n * self.tail_fraction)
 
-        if k < 10:
-            logger.warning(f"Not enough tail samples (k={k}) for reliable Hill estimation.")
-            # Fallback or strict error handling depending on preference
+        if k < 5:
+            return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": n, "k_exceedances": k}
 
-        # 3. Hill Estimator Calculation
-        # Formula: (1/k) * Sum( ln(L_i) - ln(L_{k+1}) )
-        # Note: We take losses[0] to losses[k-1] as the top k.
-        # losses[k] corresponds to L_{k+1} because of 0-based indexing.
-        threshold_loss = losses[k]  # L_{k+1}
+        threshold_loss = losses[k]
 
-        # Avoid log(0) or log(negative) issues
+        # Handle non-positive threshold issues
         if threshold_loss <= 0:
-            # Shift distribution if losses are not strictly positive (common practical hack)
-            # or just take the positive subset
             valid_losses = losses[losses > 0]
+            if len(valid_losses) == 0:
+                return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": n, "k_exceedances": 0}
             n = len(valid_losses)
             k = int(n * self.tail_fraction)
             losses = valid_losses
@@ -82,8 +68,7 @@ class EVTEngine:
 
         log_losses = np.log(losses[:k])
         log_threshold = np.log(threshold_loss)
-
-        gamma = np.mean(log_losses - log_threshold)  # The Hill Estimator (shape parameter)
+        gamma = np.mean(log_losses - log_threshold)
 
         return {
             "gamma": gamma,
@@ -92,31 +77,21 @@ class EVTEngine:
             "k_exceedances": k
         }
 
-    def calculate_risk_metrics(self,
-                               evt_params: Dict[str, float],
-                               confidence_level: float = 0.99) -> Dict[str, float]:
-        """
-        Calculates VaR and ES using the EVT parameters.
-        """
+    def calculate_risk_metrics(self, evt_params: Dict[str, float], confidence_level: float = 0.99) -> Dict[str, float]:
         gamma = evt_params["gamma"]
         threshold = evt_params["threshold_loss"]
         n = evt_params["n_samples"]
         k = evt_params["k_exceedances"]
         p = confidence_level
 
-        # 1. EVT Value at Risk (VaR)
-        # Formula: L_{k+1} * ( k / (n * (1-p)) ) ^ gamma
-        # This extrapolates the tail shape to the desired confidence level p
+        if k == 0 or threshold == 0:
+            return {f"VaR_{p}": 0.0, f"ES_{p}": 0.0, "Gamma_Hill": 0.0}
+
         risk_ratio = k / (n * (1 - p))
         var_evt = threshold * (risk_ratio ** gamma)
 
-        # 2. EVT Expected Shortfall (ES / CVaR)
-        # Formula: VaR / (1 - gamma) + (expected mean adjustment if needed)
-        # Simple approximation for GPD: ES = VaR / (1 - gamma)
-        # Constraint: gamma must be < 1. If gamma >= 1, the tail is so fat the mean is infinite.
         if gamma >= 1.0:
             es_evt = float('inf')
-            logger.error("Tail index gamma >= 1.0! Variance is infinite. Risk is unmanageable.")
         else:
             es_evt = var_evt / (1 - gamma)
 
@@ -125,6 +100,30 @@ class EVTEngine:
             f"ES_{p}": es_evt,
             "Gamma_Hill": gamma
         }
+
+    # --- NEW METHOD ---
+    def generate_scenarios(self,
+                           n_simulations: int,
+                           gamma: float,
+                           volatility: float,
+                           expected_return: float = 0.0) -> np.ndarray:
+        """
+        Generates future return scenarios using Parametric Bootstrapping with EVT.
+        Math: Uses Student-t distribution with df = 1/gamma to model heavy tails.
+        """
+        if gamma <= 0.01:
+            # Essentially Normal
+            noise = np.random.normal(0, volatility, n_simulations)
+        elif gamma >= 1.0:
+            # Infinite variance (Dangerous), cap at df=2 for stability
+            logger.warning(f"Gamma {gamma:.4f} too high. Clamping to Student-t(df=2).")
+            noise = np.random.standard_t(df=2.0, size=n_simulations) * volatility
+        else:
+            # Heavy Tailed Simulation
+            df = 1.0 / gamma
+            noise = np.random.standard_t(df=df, size=n_simulations) * volatility
+
+        return expected_return + noise
 
 
 # Helper function to run the full analysis

@@ -9,10 +9,10 @@ from pathlib import Path
 
 # Import our custom modules
 from src.data.data_collector_v5 import DataCollector
-from src.data.dataset_v5 import DataModule, DataConfig
+from src.data.dataset_v5 import DataModule, DataConfig, StockDataset
 from src.model.krnn_v5 import KRNNRegressor, ModelConfig
 from src.utils.trainer_v5 import Trainer
-from src.risk.evt import calculate_portfolio_risk, get_residuals
+from src.risk.evt import EVTEngine, get_residuals
 from src.portfolio.optimizer import MeanCVaROptimizer
 
 # Setup logging
@@ -21,143 +21,178 @@ logger = logging.getLogger(__name__)
 
 
 def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
-    """
-    Checks if data exists. If not, runs the DataCollector.
-    This replaces the assumption that data is just 'there'.
-    """
-    # Load config to get paths
     with open(config_path) as f:
         config = yaml.safe_load(f)
-
     data_dir = Path(config['paths']['data'])
     required_files = ['train.parquet', 'validation.parquet', 'test.parquet']
-
-    # Check if all files exist
     if all((data_dir / f).exists() for f in required_files):
         logger.info("Data files found. Skipping download.")
         return config
-
     logger.info("Data files missing. Starting Data Collection...")
-
-    # Initialize Collector with config
     collector = DataCollector(config)
-
-    # Run Collection (Downloads NASDAQ-100, Calc Features, Saves Parquet)
-    # Using a 5-year lookback for good EVT tail estimation
     collector.collect_data(start_date='2018-01-01')
-
     return config
 
 
 def run_project_pipeline():
-    # --- Step 0: Initialization & Configuration ---
+    # --- Step 0: Initialization ---
     print("\n[Phase 0] Initializing Pipeline & Checking Data...")
-    # This ensures data exists before we crash
     config_dict = initialize_data_pipeline("config_v5.yaml")
 
-    # --- Step 1: Data Loading ---
-    print("\n[Phase 1] Loading Data Module...")
-    # FIX: changed 'window_size' to 'sequence_length' to match DataConfig definition
+    # --- Step 1: Data Loading (Training Cache) ---
+    print("\n[Phase 1] Loading Data Module (RAM Cache)...")
     data_config = DataConfig(
         sequence_length=config_dict['data']['window_size'],
         batch_size=config_dict['data']['batch_size']
     )
-
     data_module = DataModule(data_config)
     data_module.setup(Path(config_dict['paths']['data']))
     dataloaders = data_module.get_dataloaders()
 
-    # --- Step 2: Model Training (The "KRNN" Regression) ---
+    # --- Step 2: Model Training ---
     print("\n[Phase 1] Training K-Parallel KRNN Regressor...")
     feature_dim = len(data_module.train_dataset.feature_cols)
-
     model_config = ModelConfig(
         input_dim=feature_dim,
         hidden_dim=config_dict['model']['hidden_dim'],
-        k_dups=3,  # The "K" in KRNN (Parallel Ensembles)
-        output_dim=1,  # Regression (Predicting Log Returns)
+        k_dups=3,
+        output_dim=1,
         dropout=config_dict['model']['dropout'],
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
     model = KRNNRegressor(model_config)
-
-    # Train
-    # We pass the full config dict for hyperparameters
     trainer = Trainer(model, config=config_dict)
 
-    # Train the model (Assuming trainer.train handles the loop)
-    # Note: Ensure src/model/train_v5.py Trainer class is updated for Regression (MSELoss)
+    # Train
     training_metrics = trainer.train(
         train_loader=dataloaders['train'],
-        val_loader=dataloaders['val'],
-        experiment=None  # logic for experiment tracking if needed
+        val_loader=dataloaders['val']
     )
     print(f"Training Complete. Final Val Loss: {training_metrics.get('loss', 'N/A')}")
 
-    # --- Step 3: Risk Analysis (The "EVT" Engine) ---
-    print("\n[Phase 2] Analyzing Residuals & Heavy Tails (EVT)...")
+    # --- Step 3: The Systematic Funnel ---
+    print("\n[Phase 3] Running Systematic Portfolio Selection...")
 
-    # In a real scenario, we loop through tickers.
-    # Here we show the logic using the model's actual validation performance.
+    # A. Universe Scanning
+    val_df_path = Path(config_dict['paths']['data']) / 'validation.parquet'
+    val_df = pd.read_parquet(val_df_path)
+    all_tickers = val_df['Ticker'].unique()
+    print(f"1. Universe Scan: Found {len(all_tickers)} tickers.")
 
-    # 1. Get Real Residuals from the trained model
-    # (residuals = y_true - y_pred)
-    val_residuals = get_residuals(model, dataloaders['val'], model_config.device)
+    # B. Alpha Filter (KRNN Prediction)
+    print("2. Alpha Filter: Ranking assets by Predicted Return...")
+    candidates = []
 
-    # 2. Analyze Tails
-    # We use these residuals to estimate the 'Gamma' (Tail Index)
-    # A generic analysis for the whole market (simplified)
-    from src.risk.evt import EVTEngine
-    evt_engine = EVTEngine(tail_fraction=0.10)
-    evt_params = evt_engine.analyze_tails(val_residuals)
-    risk_metrics = evt_engine.calculate_risk_metrics(evt_params)
+    # Settings from config
+    top_n = config_dict.get('portfolio', {}).get('top_n_assets', 10)
+    risk_conf = config_dict.get('portfolio', {}).get('risk_confidence', 0.95)
+    n_sims = config_dict.get('portfolio', {}).get('n_simulations', 1000)
 
-    print(f"Market Tail Index (Gamma): {evt_params['gamma']:.4f}")
-    print(f"99% VaR (EVT): {risk_metrics['VaR_0.99']:.5f}")
-    print(f"99% ES (EVT):  {risk_metrics['ES_0.99']:.5f}")
+    model.eval()
 
-    # --- Step 4: Portfolio Optimization (Mean-CVaR) ---
-    print("\n[Phase 3] Optimizing Portfolio Weights (Mean-CVaR)...")
+    for ticker in all_tickers:
+        # Create ephemeral dataset for inference
+        ticker_df = val_df[val_df['Ticker'] == ticker].copy()
+        if len(ticker_df) < data_config.sequence_length + 20:
+            continue
 
-    # Demonstration: Using 3 hypothetical assets derived from our model's statistics
-    # In production, you would run the model 3 times for 3 diff tickers.
-    tickers = ['AAPL', 'MSFT', 'GOOGL']
+        ticker_ds = StockDataset(ticker_df, data_config.sequence_length)
+        ticker_loader = DataLoader(ticker_ds, batch_size=64, shuffle=False)
 
-    # Simulate scenarios based on the heavy tails we just found
-    # We generate random returns using the actual Gamma we found (Student-t approx)
-    df_params = 1.0 / evt_params['gamma']  # Gamma approx inverse of DOF
+        # Inference
+        preds = []
+        targets = []
+        with torch.no_grad():
+            for feat, targ in ticker_loader:
+                feat = feat.to(model_config.device)
+                p = model(feat)
+                preds.append(p.cpu().numpy())
+                targets.append(targ.cpu().numpy())
+
+        preds = np.concatenate(preds)
+        targets = np.concatenate(targets)
+
+        # Calculate Signals
+        avg_pred_return = np.mean(preds)
+        residuals = targets.flatten() - preds.flatten()
+
+        candidates.append({
+            'Ticker': ticker,
+            'Pred_Return': avg_pred_return,
+            'Residuals': residuals
+        })
+
+    # Sort and Select Top N
+    candidates.sort(key=lambda x: x['Pred_Return'], reverse=True)
+    top_candidates = candidates[:top_n]
+
+    print(f"   Selected Top {len(top_candidates)} Candidates:")
+    for c in top_candidates:
+        print(f"   - {c['Ticker']}: Predicted Return = {c['Pred_Return'] * 100:.4f}%")
+
+    # C. Risk Filter (EVT Analysis)
+    print(f"\n3. Risk Filter: Analyzing Heavy Tails (Gamma) for Top {len(top_candidates)}...")
 
     scenarios_list = []
-    expected_returns = []
+    final_tickers = []
+    expected_returns_vec = []
+    evt_engine = EVTEngine(tail_fraction=0.10)
 
-    for _ in tickers:
-        # Predict: Model expects +0.05% return
-        pred_ret = 0.0005
+    for cand in top_candidates:
+        ticker = cand['Ticker']
 
-        # Risk: Heavy tailed noise based on our EVT findings
-        noise = np.random.standard_t(df=df_params, size=250) * np.std(val_residuals)
+        # EVT Analysis
+        evt_params = evt_engine.analyze_tails(cand['Residuals'])
+        gamma = evt_params['gamma']
+        volatility = np.std(cand['Residuals'])
 
-        scenarios_list.append(pred_ret + noise)
-        expected_returns.append(pred_ret)
+        # Generate Scenarios (Simulating Future Path)
+        scenarios = evt_engine.generate_scenarios(
+            n_simulations=n_sims,
+            gamma=gamma,
+            volatility=volatility,
+            expected_return=cand['Pred_Return']
+        )
 
-    scenarios_matrix = np.column_stack(scenarios_list)
-    expected_returns_vec = np.array(expected_returns)
+        scenarios_list.append(scenarios)
+        final_tickers.append(ticker)
+        expected_returns_vec.append(cand['Pred_Return'])
 
-    optimizer = MeanCVaROptimizer(confidence_level=0.95)
-    target_ret = 0.0003  # Target: 0.03% daily return
+        # Calculate quick metric for display
+        metrics = evt_engine.calculate_risk_metrics(evt_params)
+        print(f"   - {ticker}: Gamma={gamma:.4f} | Vol={volatility:.4f} | 99% ES={metrics['ES_0.99']:.4f}")
 
-    result = optimizer.optimize(expected_returns_vec, scenarios_matrix, target_ret)
+    # D. Optimization (Capital Allocation)
+    print("\n4. Optimization: Minimizing Portfolio CVaR...")
 
-    if result:
-        print("\n=== OPTIMAL PORTFOLIO ALLOCATION ===")
-        print(f"Target Return: {target_ret * 100:.2f}%")
-        print(f"Min CVaR (95%): {result['CVaR_Optimal']:.4f}")
-        print("-" * 30)
-        for ticker, weight in zip(tickers, result['weights']):
-            print(f"{ticker}: {weight * 100:.2f}%")
-        print("-" * 30)
+    if len(scenarios_list) > 1:
+        scenarios_matrix = np.column_stack(scenarios_list)
+        expected_returns_vec = np.array(expected_returns_vec)
+
+        optimizer = MeanCVaROptimizer(confidence_level=risk_conf)
+
+        # Target: Slightly less than average winner to allow risk management flexibility
+        target_factor = config_dict.get('portfolio', {}).get('target_return_factor', 0.8)
+        target_ret = np.mean(expected_returns_vec) * target_factor
+
+        result = optimizer.optimize(expected_returns_vec, scenarios_matrix, target_ret)
+
+        if result:
+            print("\n=== FINAL SYSTEMATIC PORTFOLIO ===")
+            print(f"Objective: Minimize CVaR (95%) while earning > {target_ret * 100:.4f}% daily")
+            print(f"Resulting Portfolio CVaR: {result['CVaR_Optimal']:.4f}")
+            print("-" * 40)
+
+            # Display sorted weights
+            allocations = sorted(zip(final_tickers, result['weights']), key=lambda x: x[1], reverse=True)
+            for ticker, weight in allocations:
+                if weight > 0.001:
+                    print(f"{ticker:<6}: {weight * 100:.2f}%")
+            print("-" * 40)
+        else:
+            print("Optimizer failed to find a feasible solution.")
     else:
-        print("Optimization failed to find a solution.")
+        print("Not enough candidates for optimization.")
 
 
 if __name__ == "__main__":
