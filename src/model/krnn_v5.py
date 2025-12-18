@@ -6,22 +6,30 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from typing import Tuple
 from dataclasses import dataclass
 
+# src/model/krnn_v5.py
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """Configuration for the K-Parallel RNN (KRNN) Regressor."""
-    input_dim: int              # Number of input features
-    hidden_dim: int = 64        # Hidden dimension for each RNN
-    num_layers: int = 2         # Number of RNN layers
-    dropout: float = 0.2        # Dropout rate
-    k_dups: int = 3             # 'K' in KRNN: Number of parallel RNNs
-    output_dim: int = 1         # Regression output (Predicting Log Return)
+    """Configuration for the Probabilistic K-Parallel RNN."""
+    input_dim: int
+    hidden_dim: int = 64
+    num_layers: int = 2
+    dropout: float = 0.2
+    k_dups: int = 3
+    # Output dim is 2 for Heteroscedastic Regression (Mu, Sigma)
+    output_dim: int = 2
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 class KParallelEncoder(nn.Module):
     """
     The Core 'KRNN' Logic.
-    Based on pytorch_krnn.py: Creates K parallel RNNs and averages their outputs.
+    Creates K parallel RNNs and averages their outputs to reduce variance.
     """
 
     def __init__(self, config: ModelConfig):
@@ -31,7 +39,6 @@ class KParallelEncoder(nn.Module):
         self.device = config.device
 
         # Create K independent RNN instances
-        # We use ModuleList to ensure PyTorch registers them as trainable parameters
         self.rnn_modules = nn.ModuleList()
         for _ in range(self.k_dups):
             self.rnn_modules.append(
@@ -41,37 +48,27 @@ class KParallelEncoder(nn.Module):
                     num_layers=config.num_layers,
                     dropout=config.dropout if config.num_layers > 1 else 0,
                     batch_first=True,
-                    bidirectional=False  # Standard KRNN is usually unidirectional, can be toggled
+                    bidirectional=False
                 )
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: Input tensor [Batch, Seq_Len, Features]
+            x: [Batch, Seq_Len, Features]
         Returns:
             Averaged Hidden Representation [Batch, Hidden_Dim]
         """
-        # x shape: [batch, seq, feature]
-
         parallel_outputs = []
 
-        # 1. Run input through each of the K RNNs independently
         for rnn in self.rnn_modules:
-            # rnn_out: [batch, seq, hidden]
-            # h_n: [layers, batch, hidden]
             out, _ = rnn(x)
-
-            # We take the output of the last time step
+            # Take the output of the last time step
             last_step_out = out[:, -1, :]  # [batch, hidden]
             parallel_outputs.append(last_step_out)
 
-        # 2. Stack them: [batch, hidden, K]
+        # Stack and Mean Pool
         stacked_outputs = torch.stack(parallel_outputs, dim=-1)
-
-        # 3. Aggregation: Calculate the MEAN across the K duplicates
-        # This is the "Ensemble" effect that justifies the KRNN name.
-        # Shape becomes [batch, hidden]
         krnn_representation = torch.mean(stacked_outputs, dim=-1)
 
         return krnn_representation
@@ -79,33 +76,38 @@ class KParallelEncoder(nn.Module):
 
 class KRNNRegressor(nn.Module):
     """
-    The Full Regression Model.
-    Wraps the K-Parallel Encoder with a Linear Regression Head.
+    Probabilistic KRNN Regressor.
+    Predicts both Expected Return (Mu) and Volatility (Sigma).
     """
 
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
-
-        # The K-Parallel Encoder
         self.encoder = KParallelEncoder(config)
 
-        # Regression Head (Hidden -> 1)
+        # We need 2 outputs: Mu (Mean) and Sigma (Std Dev)
         self.regressor = nn.Sequential(
             nn.Dropout(config.dropout),
-            nn.Linear(config.hidden_dim, config.output_dim)
+            nn.Linear(config.hidden_dim, 2)
         )
-
         self.to(config.device)
 
     def forward(self, x: torch.Tensor):
-        # 1. Encode (K-Parallel RNNs)
-        encoded_features = self.encoder(x)
+        # 1. Encode
+        encoded = self.encoder(x)
 
-        # 2. Regress (Predict Log Return)
-        prediction = self.regressor(encoded_features)
+        # 2. Predict parameters
+        out = self.regressor(encoded)  # [Batch, 2]
 
-        return prediction.squeeze(-1)  # [Batch]
+        # Split output
+        mu = out[:, 0]  # Predicted Mean Return
+        log_var = out[:, 1]  # Raw output for volatility
+
+        # Enforce positivity for Sigma using Softplus
+        # Add epsilon to prevent division by zero in loss function
+        sigma = F.softplus(log_var) + 1e-6
+
+        return mu, sigma
 
 class KRNN(nn.Module):
     """K-rare class nearest neighbor enhanced RNN."""

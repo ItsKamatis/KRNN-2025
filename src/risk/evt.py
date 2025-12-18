@@ -1,52 +1,54 @@
-# src/risk/evt.py
 import torch
 import numpy as np
 import logging
-from typing import Tuple, Dict
+from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-def get_residuals(model: torch.nn.Module,
-                  dataloader: torch.utils.data.DataLoader,
-                  device: str) -> np.ndarray:
+def get_standardized_residuals(model: torch.nn.Module,
+                               dataloader: torch.utils.data.DataLoader,
+                               device: str) -> np.ndarray:
+    """
+    Calculates Standardized Residuals: Z = (y - mu) / sigma
+    Used to isolate the 'surprise' component from the predicted volatility.
+    """
     model.eval()
-    residuals = []
+    z_scores = []
 
-    def get_residuals(model: torch.nn.Module,
-                      dataloader: torch.utils.data.DataLoader,
-                      device: str) -> np.ndarray:
-        model.eval()
-        residuals = []
-        with torch.no_grad():
-            for features, targets in dataloader:
-                features = features.to(device)
-                # Squeeze targets to match preds shape [Batch]
-                targets = targets.to(device).squeeze(-1).float()
-                preds = model(features)
-                batch_residuals = targets - preds
-                residuals.append(batch_residuals.cpu().numpy())
-        return np.concatenate(residuals)
+    with torch.no_grad():
+        for features, targets in dataloader:
+            features = features.to(device)
+            targets = targets.to(device).squeeze(-1).float()
+
+            # Get Probabilistic Output
+            mu, sigma = model(features)
+
+            # Calculate Z-Score
+            # (Actual - Expected) / Predicted_Volatility
+            z = (targets - mu) / sigma
+            z_scores.append(z.cpu().numpy())
+
+    return np.concatenate(z_scores)
 
 
 class EVTEngine:
     """
     Extreme Value Theory Engine for Risk Management.
-    Implements Hill's Estimator and GPD-based VaR/CVaR.
     """
 
     def __init__(self, tail_fraction: float = 0.10):
-        """
-        Args:
-            tail_fraction: The percentage of data to consider as the "Tail" (k/n).
-                          Standard values are 0.05 (5%) or 0.10 (10%).
-        """
         self.tail_fraction = tail_fraction
 
     def analyze_tails(self, residuals: np.ndarray) -> Dict[str, float]:
-        # Isolate "Losses" (Left Tail of Returns = Negative Residuals)
+        """
+        Estimates the Tail Index (Gamma) using the Hill Estimator.
+        Input should be STANDARDIZED residuals (Z-scores) for heteroscedastic models.
+        """
+        # We care about the Left Tail of Returns (Negative Z-scores)
+        # Loss = -Z
         losses = -residuals
-        losses = np.sort(losses)[::-1]
+        losses = np.sort(losses)[::-1]  # Sort descending
 
         n = len(losses)
         k = int(n * self.tail_fraction)
@@ -56,7 +58,9 @@ class EVTEngine:
 
         threshold_loss = losses[k]
 
-        # Handle non-positive threshold issues
+        # Hill Estimator requires positive values (Tail > 0)
+        # If threshold is negative, it means the 'tail' (top 10%) includes gains,
+        # which implies very low volatility or bullish data. We filter.
         if threshold_loss <= 0:
             valid_losses = losses[losses > 0]
             if len(valid_losses) == 0:
@@ -68,16 +72,20 @@ class EVTEngine:
 
         log_losses = np.log(losses[:k])
         log_threshold = np.log(threshold_loss)
+
         gamma = np.mean(log_losses - log_threshold)
 
         return {
             "gamma": gamma,
-            "threshold_loss": threshold_loss,
+            "threshold_loss": threshold_loss,  # This is the VaR of Z-scores
             "n_samples": n,
             "k_exceedances": k
         }
 
     def calculate_risk_metrics(self, evt_params: Dict[str, float], confidence_level: float = 0.99) -> Dict[str, float]:
+        """
+        Calculates VaR and ES for the Z-Score distribution.
+        """
         gamma = evt_params["gamma"]
         threshold = evt_params["threshold_loss"]
         n = evt_params["n_samples"]
@@ -101,41 +109,31 @@ class EVTEngine:
             "Gamma_Hill": gamma
         }
 
-    # --- NEW METHOD ---
     def generate_scenarios(self,
                            n_simulations: int,
                            gamma: float,
                            volatility: float,
-                           expected_return: float = 0.0) -> np.ndarray:
+                           expected_return: float) -> np.ndarray:
         """
-        Generates future return scenarios using Parametric Bootstrapping with EVT.
-        Math: Uses Student-t distribution with df = 1/gamma to model heavy tails.
+        Simulate Future Returns using the Heteroscedastic Model + EVT Shocks.
+
+        Formula:
+            Return_Sim = Mu_Pred + Sigma_Pred * Z_Sim
+
+        Where Z_Sim is drawn from a Heavy-Tailed (Student-t) distribution
+        defined by the historical Gamma.
         """
+        # 1. Generate Standardized Shocks (Z)
         if gamma <= 0.01:
-            # Essentially Normal
-            noise = np.random.normal(0, volatility, n_simulations)
+            # Gaussian Shocks
+            z_sim = np.random.normal(0, 1, n_simulations)
         elif gamma >= 1.0:
-            # Infinite variance (Dangerous), cap at df=2 for stability
-            logger.warning(f"Gamma {gamma:.4f} too high. Clamping to Student-t(df=2).")
-            noise = np.random.standard_t(df=2.0, size=n_simulations) * volatility
+            # Infinite Variance (Dangerous) - Clamp df
+            z_sim = np.random.standard_t(df=2.0, size=n_simulations)
         else:
-            # Heavy Tailed Simulation
+            # Heavy Tailed Shocks
             df = 1.0 / gamma
-            noise = np.random.standard_t(df=df, size=n_simulations) * volatility
+            z_sim = np.random.standard_t(df=df, size=n_simulations)
 
-        return expected_return + noise
-
-
-# Helper function to run the full analysis
-def calculate_portfolio_risk(model, dataloader, device):
-    residuals = get_residuals(model, dataloader, device)
-
-    engine = EVTEngine(tail_fraction=0.10)  # Look at top 10% worst errors
-
-    # 1. Fit the tail
-    evt_params = engine.analyze_tails(residuals)
-
-    # 2. Calculate Metrics (e.g., 99% confidence)
-    metrics = engine.calculate_risk_metrics(evt_params, confidence_level=0.99)
-
-    return metrics
+        # 2. Scale by Predicted Volatility and Shift by Predicted Mean
+        return expected_return + (z_sim * volatility)

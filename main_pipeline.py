@@ -1,4 +1,3 @@
-# main_pipeline.py
 import torch
 import numpy as np
 import pandas as pd
@@ -12,7 +11,7 @@ from src.data.data_collector_v5 import DataCollector
 from src.data.dataset_v5 import DataModule, DataConfig, StockDataset
 from src.model.krnn_v5 import KRNNRegressor, ModelConfig
 from src.utils.trainer_v5 import Trainer
-from src.risk.evt import EVTEngine, get_residuals
+from src.risk.evt import EVTEngine, get_standardized_residuals
 from src.portfolio.optimizer import MeanCVaROptimizer
 
 # Setup logging
@@ -49,14 +48,14 @@ def run_project_pipeline():
     data_module.setup(Path(config_dict['paths']['data']))
     dataloaders = data_module.get_dataloaders()
 
-    # --- Step 2: Model Training ---
-    print("\n[Phase 1] Training K-Parallel KRNN Regressor...")
+    # --- Step 2: Model Training (Probabilistic) ---
+    print("\n[Phase 1] Training K-Parallel KRNN (Heteroscedastic)...")
     feature_dim = len(data_module.train_dataset.feature_cols)
     model_config = ModelConfig(
         input_dim=feature_dim,
         hidden_dim=config_dict['model']['hidden_dim'],
         k_dups=3,
-        output_dim=1,
+        output_dim=2,  # Mu and Sigma
         dropout=config_dict['model']['dropout'],
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -68,7 +67,7 @@ def run_project_pipeline():
         train_loader=dataloaders['train'],
         val_loader=dataloaders['val']
     )
-    print(f"Training Complete. Final Val Loss: {training_metrics.get('loss', 'N/A')}")
+    print(f"Training Complete. Final Val GNLL: {training_metrics.get('loss', 'N/A')}")
 
     # --- Step 3: The Systematic Funnel ---
     print("\n[Phase 3] Running Systematic Portfolio Selection...")
@@ -83,7 +82,6 @@ def run_project_pipeline():
     print("2. Alpha Filter: Ranking assets by Predicted Return...")
     candidates = []
 
-    # Settings from config
     top_n = config_dict.get('portfolio', {}).get('top_n_assets', 10)
     risk_conf = config_dict.get('portfolio', {}).get('risk_confidence', 0.95)
     n_sims = config_dict.get('portfolio', {}).get('n_simulations', 1000)
@@ -100,26 +98,40 @@ def run_project_pipeline():
         ticker_loader = DataLoader(ticker_ds, batch_size=64, shuffle=False)
 
         # Inference
-        preds = []
+        mus = []
+        sigmas = []
         targets = []
         with torch.no_grad():
             for feat, targ in ticker_loader:
                 feat = feat.to(model_config.device)
-                p = model(feat)
-                preds.append(p.cpu().numpy())
+
+                # Unpack Probabilistic Output
+                mu, sigma = model(feat)
+
+                mus.append(mu.cpu().numpy())
+                sigmas.append(sigma.cpu().numpy())
                 targets.append(targ.cpu().numpy())
 
-        preds = np.concatenate(preds)
+        mus = np.concatenate(mus)
+        sigmas = np.concatenate(sigmas)
         targets = np.concatenate(targets)
 
-        # Calculate Signals
-        avg_pred_return = np.mean(preds)
-        residuals = targets.flatten() - preds.flatten()
+        # Metrics
+        # We use the average Predicted Return (Alpha)
+        avg_pred_return = np.mean(mus)
+
+        # We also store the average Predicted Volatility (for the Scenario Generator)
+        avg_pred_volatility = np.mean(sigmas)
+
+        # Calculate STANDARDIZED Residuals for EVT
+        # Z = (Target - Mu) / Sigma
+        residuals = (targets.flatten() - mus.flatten()) / sigmas.flatten()
 
         candidates.append({
             'Ticker': ticker,
             'Pred_Return': avg_pred_return,
-            'Residuals': residuals
+            'Pred_Vol': avg_pred_volatility,
+            'Residuals': residuals  # These are now Z-scores
         })
 
     # Sort and Select Top N
@@ -128,10 +140,10 @@ def run_project_pipeline():
 
     print(f"   Selected Top {len(top_candidates)} Candidates:")
     for c in top_candidates:
-        print(f"   - {c['Ticker']}: Predicted Return = {c['Pred_Return'] * 100:.4f}%")
+        print(f"   - {c['Ticker']}: Mu={c['Pred_Return'] * 100:.4f}% | Sigma={c['Pred_Vol'] * 100:.4f}%")
 
     # C. Risk Filter (EVT Analysis)
-    print(f"\n3. Risk Filter: Analyzing Heavy Tails (Gamma) for Top {len(top_candidates)}...")
+    print(f"\n3. Risk Filter: Analyzing Heavy Tails (Gamma of Z-scores)...")
 
     scenarios_list = []
     final_tickers = []
@@ -141,16 +153,16 @@ def run_project_pipeline():
     for cand in top_candidates:
         ticker = cand['Ticker']
 
-        # EVT Analysis
+        # EVT Analysis of Standardized Residuals
         evt_params = evt_engine.analyze_tails(cand['Residuals'])
         gamma = evt_params['gamma']
-        volatility = np.std(cand['Residuals'])
 
-        # Generate Scenarios (Simulating Future Path)
+        # Generate Scenarios (Future Path)
+        # We use the Model's Predicted Volatility + EVT Tail Shocks
         scenarios = evt_engine.generate_scenarios(
             n_simulations=n_sims,
             gamma=gamma,
-            volatility=volatility,
+            volatility=cand['Pred_Vol'],  # <--- NEW: Using KRNN Sigma
             expected_return=cand['Pred_Return']
         )
 
@@ -158,11 +170,11 @@ def run_project_pipeline():
         final_tickers.append(ticker)
         expected_returns_vec.append(cand['Pred_Return'])
 
-        # Calculate quick metric for display
+        # Metrics
         metrics = evt_engine.calculate_risk_metrics(evt_params)
-        print(f"   - {ticker}: Gamma={gamma:.4f} | Vol={volatility:.4f} | 99% ES={metrics['ES_0.99']:.4f}")
+        print(f"   - {ticker}: Gamma={gamma:.4f} | 99% ES (Z)={metrics['ES_0.99']:.4f}")
 
-    # D. Optimization (Capital Allocation)
+    # D. Optimization
     print("\n4. Optimization: Minimizing Portfolio CVaR...")
 
     if len(scenarios_list) > 1:
@@ -171,19 +183,18 @@ def run_project_pipeline():
 
         optimizer = MeanCVaROptimizer(confidence_level=risk_conf)
 
-        # Target: Slightly less than average winner to allow risk management flexibility
+        # Target
         target_factor = config_dict.get('portfolio', {}).get('target_return_factor', 0.8)
         target_ret = np.mean(expected_returns_vec) * target_factor
 
         result = optimizer.optimize(expected_returns_vec, scenarios_matrix, target_ret)
 
         if result:
-            print("\n=== FINAL SYSTEMATIC PORTFOLIO ===")
+            print("\n=== FINAL HETEROSCEDASTIC PORTFOLIO ===")
             print(f"Objective: Minimize CVaR (95%) while earning > {target_ret * 100:.4f}% daily")
             print(f"Resulting Portfolio CVaR: {result['CVaR_Optimal']:.4f}")
             print("-" * 40)
 
-            # Display sorted weights
             allocations = sorted(zip(final_tickers, result['weights']), key=lambda x: x[1], reverse=True)
             for ticker, weight in allocations:
                 if weight > 0.001:
