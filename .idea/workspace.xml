@@ -5,15 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="initial commit">
-      <change afterPath="$PROJECT_DIR$/main_pipeline.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/portfolio/optimizer.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/risk/evt.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/KRNN_V5.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/KRNN_V5.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_pipeline.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/data/data_collector_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/data/data_collector_v5.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/model/krnn_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/model/krnn_v5.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/model/train_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/model/train_v5.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/data/dataset_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/data/dataset_v5.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -36,12 +31,12 @@
     &quot;assignee&quot;: &quot;ItsKamatis&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/ItsKamatis/KRNN_V5.git",
-    "accountId": "36c0120a-5724-4140-8e17-9de1d6fcb06a"
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/ItsKamatis/KRNN_V5.git&quot;,
+    &quot;accountId&quot;: &quot;36c0120a-5724-4140-8e17-9de1d6fcb06a&quot;
   }
-}]]></component>
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 2
 }</component>
@@ -52,10 +47,12 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "Python.data_collector_v5.executor": "Run",
     "Python.main_pipeline.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "git-widget-placeholder": "master",
     "ignore.virus.scanning.warn.message": "true",
@@ -76,11 +73,42 @@
       <recent name="D:\PyCharm Projects\KRNN_V5" />
     </key>
   </component>
+  <component name="RunManager">
+    <configuration name="data_collector_v5" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="KRNN_V5" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/src/data" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/data/data_collector_v5.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.data_collector_v5" />
+      </list>
+    </recent_temporary>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-a71380e98a7c-JavaScript-PY-252.28238.29" />
-        <option value="bundled-python-sdk-a101402ee41c-968fe969f28a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.28238.29" />
+        <option value="bundled-js-predefined-d6986cc7102b-c7e53b3be11b-JavaScript-PY-253.28294.336" />
+        <option value="bundled-python-sdk-0978a7220b69-9867c7d4c0a4-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.28294.336" />
       </set>
     </attachedChunks>
   </component>
@@ -94,7 +122,8 @@
       <updated>1730576169599</updated>
       <workItem from="1730576171275" duration="848000" />
       <workItem from="1730577034925" duration="6532000" />
-      <workItem from="1766018570811" duration="2065000" />
+      <workItem from="1766018570811" duration="2964000" />
+      <workItem from="1766021730839" duration="1008000" />
     </task>
     <task id="LOCAL-00001" summary="initial commit">
       <option name="closed" value="true" />
@@ -112,7 +141,15 @@
       <option name="project" value="LOCAL" />
       <updated>1730577130517</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="initial commit">
+      <option name="closed" value="true" />
+      <created>1766020804126</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1766020804126</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -132,5 +169,9 @@
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/KRNN$main_pipeline.coverage" NAME="main_pipeline Coverage Results" MODIFIED="1766022731322" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/KRNN$data_collector_v5.coverage" NAME="data_collector_v5 Coverage Results" MODIFIED="1766022523526" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/data" />
   </component>
 </project>

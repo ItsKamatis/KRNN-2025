@@ -39,7 +39,18 @@ class DataCollector:
         url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
 
         try:
-            with urllib.request.urlopen(url, context=self.ssl_context) as response:
+            # --- THE FIX: Add a User-Agent Header ---
+            # Wikipedia blocks default python-urllib requests.
+            # We pretend to be a standard browser (Chrome on Windows).
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+
+            # Create a Request object with headers
+            req = urllib.request.Request(url, headers=headers)
+
+            # Pass the Request object instead of just the URL
+            with urllib.request.urlopen(req, context=self.ssl_context) as response:
                 html = response.read()
 
             dfs = pd.read_html(html)
@@ -59,7 +70,9 @@ class DataCollector:
 
         except Exception as e:
             logger.error(f"Error fetching NASDAQ-100 tickers: {e}")
-            raise
+            # Fallback tickers in case Wikipedia completely fails (prevents total crash)
+            logger.warning("Using fallback ticker list due to Wikipedia error.")
+            return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'PEP', 'AVGO', 'COST']
 
     @staticmethod
     def download_stock_data(ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
@@ -159,9 +172,23 @@ def main():
     """Run data collection process."""
     import yaml
 
+    current_dir = Path(__file__).resolve().parent
+    project_root = current_dir.parent.parent
+    config_path = project_root / 'config_v5.yaml'
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found at: {config_path}")
+
     # Load config
-    with open('config_v5.yaml') as f:
+    with open(config_path) as f:
         config = yaml.safe_load(f)
+
+    # Update paths in config to be absolute so other classes don't get lost
+    # (Optional but recommended safety step)
+    if 'paths' in config:
+        for key in config['paths']:
+            # Make data/checkpoints paths absolute relative to root
+            config['paths'][key] = str(project_root / config['paths'][key])
 
     collector = DataCollector(config)
     collector.collect_data()

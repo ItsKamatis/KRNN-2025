@@ -1,194 +1,120 @@
+# src/utils/trainer_v5.py
 import torch
-import mlflow
+import torch.nn as nn
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
-from dataclasses import dataclass
-from tqdm import tqdm
-
-from src.model.krnn_v5 import KRNN, ModelConfig
-from src.utils.experiment_v5 import ExperimentManager, MemoryOptimizer
+from typing import Dict, Optional, Any
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class TrainerConfig:
-    """Immutable trainer configuration."""
-    epochs: int = 50
-    early_stop_patience: int = 10
-    checkpoint_dir: Path = Path("checkpoints")
-    gradient_clip: float = 1.0
-    save_best: bool = True
-
-
 class Trainer:
-    """Handles model training and evaluation."""
+    """
+    Handles the training loop for the KRNN Regressor.
+    """
 
-    def __init__(self, model: KRNN, config: TrainerConfig):
+    def __init__(self, model: nn.Module, config: Dict[str, Any]):
+        """
+        Args:
+            model: The PyTorch model to train.
+            config: Configuration dictionary (containing 'training' params).
+        """
         self.model = model
         self.config = config
-        self.device = model.config.device
+        self.device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Create checkpoint directory
-        self.config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        # Move model to device
+        self.model.to(self.device)
 
-        # Initialize tracking
-        self.best_val_loss = float('inf')
-        self.patience_counter = 0
+        # Optimization
+        lr = config.get('training', {}).get('learning_rate', 0.001)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-        # Setup optimizer and scheduler
-        self.optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=model.config.learning_rate,
-            weight_decay=0.01
-        )
-        self.scheduler = torch.optim.ReduceLROnPlateau(
-            self.optimizer,
-            mode='min',
-            factor=0.5,
-            patience=5
-        )
-        self.criterion = torch.nn.CrossEntropyLoss()
+        # --- CRITICAL: MSELoss for Regression ---
+        self.criterion = nn.MSELoss()
 
-    def train(self, train_loader, val_loader, experiment: ExperimentManager) -> None:
-        """Run training loop with experiment tracking."""
-        memory_opt = MemoryOptimizer()
-
-        for epoch in range(self.config.epochs):
-            with memory_opt:
-                # Training phase
-                train_metrics = self._train_epoch(train_loader, epoch)
-                mlflow.log_metrics(
-                    {f"train_{k}": v for k, v in train_metrics.items()},
-                    step=epoch
-                )
-
-                # Validation phase
-                val_metrics = self._validate(val_loader)
-                mlflow.log_metrics(
-                    {f"val_{k}": v for k, v in val_metrics.items()},
-                    step=epoch
-                )
-
-                # Learning rate scheduling
-                self.scheduler.step(val_metrics['loss'])
-
-                # Save best model
-                if self.config.save_best and val_metrics['loss'] < self.best_val_loss:
-                    self.save_checkpoint('best.pt')
-                    self.best_val_loss = val_metrics['loss']
-                    self.patience_counter = 0
-                else:
-                    self.patience_counter += 1
-
-                # Early stopping check
-                if self.patience_counter >= self.config.early_stop_patience:
-                    logger.info(f"Early stopping triggered at epoch {epoch}")
-                    break
-
-                # Log epoch summary
-                logger.info(
-                    f"Epoch {epoch}: "
-                    f"Train Loss = {train_metrics['loss']:.4f}, "
-                    f"Val Loss = {val_metrics['loss']:.4f}, "
-                    f"Val Accuracy = {val_metrics['accuracy']:.4f}"
-                )
-
-    def _train_epoch(self, train_loader, epoch: int) -> Dict[str, float]:
-        """Train single epoch."""
+    def train_epoch(self, loader: torch.utils.data.DataLoader) -> float:
+        """Runs one epoch of training."""
         self.model.train()
-        total_loss = 0
-        correct = 0
-        total = 0
+        total_loss = 0.0
 
-        with tqdm(train_loader, desc=f"Epoch {epoch}") as pbar:
-            for features, targets in pbar:
-                # Move data to device
-                features = features.to(self.device)
-                targets = targets.to(self.device).squeeze()
-
-                # Forward pass
-                self.optimizer.zero_grad()
-                logits, _ = self.model(features)
-                loss = self.criterion(logits, targets)
-
-                # Backward pass
-                loss.backward()
-
-                # Gradient clipping
-                if self.config.gradient_clip > 0:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(),
-                        self.config.gradient_clip
-                    )
-
-                self.optimizer.step()
-
-                # Track metrics
-                total_loss += loss.item()
-                _, predicted = torch.max(logits, 1)
-                total += targets.size(0)
-                correct += (predicted == targets).sum().item()
-
-                # Update progress bar
-                pbar.set_postfix({
-                    'loss': f"{loss.item():.4f}",
-                    'acc': f"{100. * correct / total:.2f}%"
-                })
-
-        return {
-            'loss': total_loss / len(train_loader),
-            'accuracy': 100. * correct / total
-        }
-
-    @torch.no_grad()
-    def _validate(self, val_loader) -> Dict[str, float]:
-        """Run validation."""
-        self.model.eval()
-        total_loss = 0
-        correct = 0
-        total = 0
-
-        for features, targets in val_loader:
-            # Move data to device
+        for batch_idx, (features, targets) in enumerate(loader):
             features = features.to(self.device)
-            targets = targets.to(self.device).squeeze()
+            targets = targets.to(self.device)
+
+            # Reset gradients
+            self.optimizer.zero_grad()
 
             # Forward pass
-            logits, _ = self.model(features)
-            loss = self.criterion(logits, targets)
+            preds = self.model(features)
 
-            # Track metrics
+            # Calculate loss (Regression: MSE)
+            # Ensure targets are float and shape matches preds
+            loss = self.criterion(preds, targets)
+
+            # Backward pass
+            loss.backward()
+
+            # Clip gradients to prevent explosion (common in RNNs)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
+            self.optimizer.step()
+
             total_loss += loss.item()
-            _, predicted = torch.max(logits, 1)
-            total += targets.size(0)
-            correct += (predicted == targets).sum().item()
+
+        return total_loss / len(loader)
+
+    def validate(self, loader: torch.utils.data.DataLoader) -> float:
+        """Runs validation."""
+        self.model.eval()
+        total_loss = 0.0
+
+        with torch.no_grad():
+            for features, targets in loader:
+                features = features.to(self.device)
+                targets = targets.to(self.device)
+
+                preds = self.model(features)
+                loss = self.criterion(preds, targets)
+                total_loss += loss.item()
+
+        return total_loss / len(loader)
+
+    def train(self,
+              train_loader: torch.utils.data.DataLoader,
+              val_loader: torch.utils.data.DataLoader,
+              experiment: Optional[Any] = None) -> Dict[str, float]:
+        """
+        Main training loop that 'main_pipeline.py' calls.
+        """
+        epochs = self.config.get('training', {}).get('epochs', 10)
+        logger.info(f"Starting training for {epochs} epochs on {self.device}...")
+
+        best_val_loss = float('inf')
+
+        for epoch in range(epochs):
+            # 1. Train
+            train_loss = self.train_epoch(train_loader)
+
+            # 2. Validate
+            val_loss = self.validate(val_loader)
+
+            # 3. Log
+            logger.info(f"Epoch {epoch + 1}/{epochs} | Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
+
+            if experiment:
+                experiment.log_metrics({
+                    'train_loss': train_loss,
+                    'val_loss': val_loss
+                }, step=epoch)
+
+            # 4. Save Best Model
+            # (Simple check to track best performance)
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                # Optionally save checkpoint here if paths are in config
 
         return {
-            'loss': total_loss / len(val_loader),
-            'accuracy': 100. * correct / total
+            'loss': best_val_loss,
+            'final_train_loss': train_loss
         }
-
-    def save_checkpoint(self, filename: str) -> None:
-        """Save model checkpoint."""
-        path = self.config.checkpoint_dir / filename
-        torch.save({
-            'model_state': self.model.state_dict(),
-            'optimizer_state': self.optimizer.state_dict(),
-            'scheduler_state': self.scheduler.state_dict(),
-            'config': self.model.config,
-            'best_val_loss': self.best_val_loss
-        }, path)
-        logger.info(f"Saved checkpoint to {path}")
-
-    def load_checkpoint(self, filename: str) -> None:
-        """Load model checkpoint."""
-        path = self.config.checkpoint_dir / filename
-        checkpoint = torch.load(path, map_location=self.device)
-
-        self.model.load_state_dict(checkpoint['model_state'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state'])
-        self.best_val_loss = checkpoint['best_val_loss']
-        logger.info(f"Loaded checkpoint from {path}")
