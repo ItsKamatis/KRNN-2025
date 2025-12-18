@@ -25,98 +25,95 @@ class FeatureConfig:
                            self.technical_indicators or ['RSI', 'MACD', 'ATR', 'BB_UPPER', 'BB_LOWER'])
 
 
+import pandas as pd
+import numpy as np
+import talib
+from sklearn.preprocessing import StandardScaler
+from typing import List, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class FeatureEngineer:
-    """Efficient feature calculation for stock data."""
+    """
+    Centralizes feature generation and scaling.
+    Ensures 'Fit on Train, Transform on Test' to prevent leakage.
+    """
 
-    def __init__(self, config: Optional[FeatureConfig] = None):
-        self.config = config or FeatureConfig()
-        self._validate_config()
+    def __init__(self):
+        self.scaler = StandardScaler()
+        # Columns that will be fed into the model
+        self.feature_cols: List[str] = []
+        self.is_fitted = False
 
-    def _validate_config(self) -> None:
-        """Validate technical indicators exist in TA-Lib."""
-        available_indicators = set(talib.get_functions())
-        for indicator in self.config.technical_indicators:
-            if indicator not in available_indicators and indicator not in ['BB_UPPER', 'BB_LOWER']:
-                raise ValueError(f"Indicator not available: {indicator}")
-
-    def calculate_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate all features for a stock."""
+    def generate_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculates Technical Indicators and applies transformations.
+        Expected input: DataFrame with Open, High, Low, Close, Volume.
+        """
+        # Copy to avoid warnings
         df = df.copy()
 
-        # Ensure datetime index
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
+        # 1. Basic Indicators (TA-Lib)
+        # RSI (Momentum)
+        df['RSI'] = talib.RSI(df['Close'], timeperiod=14)
 
-        features = pd.DataFrame(index=df.index)
+        # MACD (Trend) - Normalized by Close to be scale-invariant
+        macd, signal, _ = talib.MACD(df['Close'])
+        df['MACD_Rel'] = macd / df['Close']
+        df['MACD_Sig_Rel'] = signal / df['Close']
 
-        # Price features
-        features = features.join(self._calculate_price_features(df))
+        # Bollinger Bands (Volatility) - Relative Bandwidth
+        upper, middle, lower = talib.BBANDS(df['Close'])
+        df['BB_Width'] = (upper - lower) / middle
+        df['BB_Pos'] = (df['Close'] - lower) / (upper - lower)  # Position within band (0-1)
 
-        # Technical indicators
-        features = features.join(self._calculate_indicators(df))
+        # ATR (Volatility) - Relative
+        # Normalizing ATR by price allows comparing Volatility of $100 stock vs $10 stock
+        abs_atr = talib.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
+        df['ATR_Rel'] = abs_atr / df['Close']
 
-        # Volume features
-        features = features.join(self._calculate_volume_features(df))
+        # 2. Volume Log Transform
+        # Volume follows a power law; log makes it more Gaussian-like
+        df['Log_Volume'] = np.log1p(df['Volume'])
 
-        # Return features
-        features = features.join(self._calculate_returns(df))
+        # 3. Log Return (The Primary Signal)
+        df['Log_Return'] = np.log(df['Close'] / df['Close'].shift(1))
 
-        return features.dropna()
+        # 4. Target Generation (Shifted Return)
+        df['Target'] = df['Log_Return'].shift(-1)
 
-    def _calculate_price_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate price-based features."""
-        features = pd.DataFrame(index=df.index)
+        # Drop NaNs created by lags
+        df.dropna(inplace=True)
 
-        for col in ['Open', 'High', 'Low', 'Close']:
-            # Moving averages
-            features[f'{col}_MA'] = df[col].rolling(
-                window=self.config.window_size, min_periods=1
-            ).mean()
+        # Define the feature set
+        # We explicitly exclude raw prices (Open/High/Low/Close) to ensure
+        # the model learns patterns, not price levels.
+        self.feature_cols = [
+            'Log_Return', 'RSI', 'MACD_Rel', 'MACD_Sig_Rel',
+            'BB_Width', 'BB_Pos', 'ATR_Rel', 'Log_Volume'
+        ]
 
-        # Price channels
-        features['HL_Spread'] = df['High'] - df['Low']
-        features['OC_Spread'] = np.abs(df['Open'] - df['Close'])
+        return df
 
-        return features
+    def fit_scaler(self, train_df: pd.DataFrame):
+        """Fits the Standard Scaler on Training Data ONLY."""
+        if not self.feature_cols:
+            raise ValueError("Run generate_features first to define columns.")
 
-    def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate technical indicators."""
-        features = pd.DataFrame(index=df.index)
+        logger.info("Fitting StandardScaler on Training Data...")
+        self.scaler.fit(train_df[self.feature_cols])
+        self.is_fitted = True
 
-        if 'RSI' in self.config.technical_indicators:
-            features['RSI'] = talib.RSI(df['Close'])
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Applies scaling to data."""
+        if not self.is_fitted:
+            raise RuntimeError("FeatureEngineer must be fit on training data first.")
 
-        if 'MACD' in self.config.technical_indicators:
-            features['MACD'], _, _ = talib.MACD(df['Close'])
-
-        if 'ATR' in self.config.technical_indicators:
-            features['ATR'] = talib.ATR(df['High'], df['Low'], df['Close'])
-
-        # Bollinger Bands
-        if any(x in self.config.technical_indicators for x in ['BB_UPPER', 'BB_LOWER']):
-            upper, middle, lower = talib.BBANDS(df['Close'])
-            if 'BB_UPPER' in self.config.technical_indicators:
-                features['BB_UPPER'] = upper
-            if 'BB_LOWER' in self.config.technical_indicators:
-                features['BB_LOWER'] = lower
-
-        return features
-
-    def _calculate_volume_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate volume-based features."""
-        features = pd.DataFrame(index=df.index)
-
-        # Volume moving average
-        features['Volume_MA'] = df['Volume'].rolling(
-            window=self.config.window_size, min_periods=1
-        ).mean()
-
-        # Volume volatility
-        features['Volume_Volatility'] = df['Volume'].rolling(
-            window=self.config.window_size, min_periods=1
-        ).std()
-
-        return features
+        df = df.copy()
+        df[self.feature_cols] = self.scaler.transform(df[self.feature_cols])
+        return df
 
     def _calculate_returns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate return-based features."""

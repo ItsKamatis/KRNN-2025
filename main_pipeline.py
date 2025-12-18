@@ -205,6 +205,51 @@ def run_project_pipeline():
     else:
         print("Not enough candidates for optimization.")
 
+    # --- Phase 4: Diagnostics (New) ---
+    print("\n[Phase 4] Evaluation & Diagnostics...")
+    import matplotlib.pyplot as plt
+
+    # Run on Test Set (Out-of-Sample)
+    test_loader = dataloaders['test']
+    model.eval()
+
+    all_mus = []
+    all_targets = []
+
+    with torch.no_grad():
+        for feat, targ in test_loader:
+            feat = feat.to(model_config.device)
+            mu, sigma = model(feat)
+            all_mus.append(mu.cpu().numpy())
+            all_targets.append(targ.cpu().numpy().flatten())
+
+    all_mus = np.concatenate(all_mus)
+    all_targets = np.concatenate(all_targets)
+
+    # 1. R-Squared
+    ss_res = np.sum((all_targets - all_mus) ** 2)
+    ss_tot = np.sum((all_targets - np.mean(all_targets)) ** 2)
+    r2 = 1 - (ss_res / ss_tot)
+    print(f"Test Set R-Squared: {r2:.4f}")
+
+    # 2. Cumulative Returns Analysis
+    # Strategy: Long only if Mu > 0
+    strategy_returns = np.where(all_mus > 0, all_targets, 0)
+    cum_strategy = np.cumsum(strategy_returns)
+    cum_market = np.cumsum(all_targets)
+
+    print(f"Cumulative Market Return (Test): {cum_market[-1] * 100:.2f}%")
+    print(f"Cumulative Model Strategy (Test): {cum_strategy[-1] * 100:.2f}%")
+
+    # 3. Plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(cum_market, label='Market (Buy & Hold)', alpha=0.7)
+    plt.plot(cum_strategy, label='KRNN Strategy (Long-Only)', linewidth=2)
+    plt.title("Out-of-Sample Performance (2024+)")
+    plt.legend()
+    plt.savefig("test_performance.png")
+    print("Performance plot saved to test_performance.png")
+
 
 if __name__ == "__main__":
     run_project_pipeline()

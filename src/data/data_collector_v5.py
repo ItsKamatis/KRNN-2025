@@ -10,7 +10,8 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
+from src.data.features_v5 import FeatureEngineer
 import urllib.request
 import talib
 
@@ -22,57 +23,89 @@ logger = logging.getLogger(__name__)
 
 
 class DataCollector:
-    """Collects and processes stock data for KRNN model."""
-
-    def __init__(self, config: dict):
+    def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.data_dir = Path(config['paths']['data'])
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._setup_ssl()
+        self.data_path = Path(config['paths']['data'])
+        self.data_path.mkdir(parents=True, exist_ok=True)
+        self.ssl_context = ssl._create_unverified_context()
 
-    def _setup_ssl(self):
-        """Configure SSL context for web requests."""
-        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+        # Initialize the Engineer
+        self.engineer = FeatureEngineer()
 
     def get_nasdaq100_tickers(self) -> List[str]:
-        """Fetch current NASDAQ-100 constituents."""
+        """Fetch NASDAQ-100 tickers from Wikipedia."""
         url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
-
         try:
-            # --- THE FIX: Add a User-Agent Header ---
-            # Wikipedia blocks default python-urllib requests.
-            # We pretend to be a standard browser (Chrome on Windows).
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-
-            # Create a Request object with headers
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             req = urllib.request.Request(url, headers=headers)
-
-            # Pass the Request object instead of just the URL
             with urllib.request.urlopen(req, context=self.ssl_context) as response:
                 html = response.read()
-
             dfs = pd.read_html(html)
-
-            # Find table with ticker symbols
             for df in dfs:
                 if 'Ticker' in df.columns:
-                    tickers = df['Ticker'].tolist()
-                    logger.info(f"Found {len(tickers)} NASDAQ-100 tickers")
-                    return tickers
+                    return df['Ticker'].tolist()
                 elif 'Symbol' in df.columns:
-                    tickers = df['Symbol'].tolist()
-                    logger.info(f"Found {len(tickers)} NASDAQ-100 tickers")
-                    return tickers
-
-            raise ValueError("Could not find ticker symbols in Wikipedia page")
-
+                    return df['Symbol'].tolist()
+            return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA']  # Fallback
         except Exception as e:
-            logger.error(f"Error fetching NASDAQ-100 tickers: {e}")
-            # Fallback tickers in case Wikipedia completely fails (prevents total crash)
-            logger.warning("Using fallback ticker list due to Wikipedia error.")
-            return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'PEP', 'AVGO', 'COST']
+            logger.error(f"Error fetching tickers: {e}")
+            return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA']
+
+    def collect_data(self, start_date: str = '2018-01-01'):
+        """Main pipeline: Download -> FeatureEng -> Split -> Scale -> Save"""
+        tickers = self.get_nasdaq100_tickers()
+        logger.info(f"Collecting data for {len(tickers)} tickers...")
+
+        all_dfs = []
+        for ticker in tickers:
+            try:
+                # 1. Download
+                df = yf.download(ticker, start=start_date, progress=False)
+                if len(df) < 250: continue
+
+                # Flatten MultiIndex columns if necessary (yfinance update)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+
+                df['Ticker'] = ticker
+                df = df.reset_index()
+
+                # 2. Generate Features (Raw)
+                df = self.engineer.generate_features(df)
+
+                all_dfs.append(df)
+            except Exception as e:
+                logger.warning(f"Failed {ticker}: {e}")
+
+        full_df = pd.concat(all_dfs, ignore_index=True)
+        full_df['Date'] = pd.to_datetime(full_df['Date'])
+
+        # 3. Time-Aware Splitting
+        train_end = self.config['data']['train_end']
+        val_end = self.config['data']['val_end']
+
+        logger.info(f"Splitting Data: Train < {train_end} | Val < {val_end}")
+
+        train_df = full_df[full_df['Date'] < train_end].copy()
+        val_df = full_df[(full_df['Date'] >= train_end) & (full_df['Date'] < val_end)].copy()
+        test_df = full_df[full_df['Date'] >= val_end].copy()
+
+        # 4. Fit Scaler (TRAIN ONLY)
+        logger.info("Fitting Scaler on Training set...")
+        self.engineer.fit_scaler(train_df)
+
+        # 5. Transform All Splits
+        logger.info("Scaling datasets...")
+        train_df = self.engineer.transform(train_df)
+        val_df = self.engineer.transform(val_df)
+        test_df = self.engineer.transform(test_df)
+
+        # 6. Save
+        train_df.to_parquet(self.data_path / 'train.parquet')
+        val_df.to_parquet(self.data_path / 'validation.parquet')
+        test_df.to_parquet(self.data_path / 'test.parquet')
+
+        logger.info(f"Data Collection Complete. Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
 
     @staticmethod
     def download_stock_data(ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
