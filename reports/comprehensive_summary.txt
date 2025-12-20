@@ -1,43 +1,31 @@
 === KRNN RISK MANAGEMENT PIPELINE REPORT ===
 ============================================
 
---- PHASE 3: SYSTEMATIC SELECTION (TOP CANDIDATES) ---
-Note: 'Mu' and 'Sigma' are daily predictions from the Neural Net.
-      'Gamma' is the Tail Index from EVT (Higher = Riskier).
-
-Ticker   Mu (%)     Sigma (%)  Gamma      ES 99% (Z)  
-------------------------------------------------------------
-NXPI     0.3995     2.3788     0.3709     4.8382      
-ORLY     0.3995     2.3788     0.3879     3.3567      
-ODFL     0.3995     2.3788     0.3612     4.2969      
-ON       0.3995     2.3788     0.3746     6.4663      
-PCAR     0.3995     2.3788     0.3422     3.1671      
-PLTR     0.3995     2.3788     0.4008     8.6864      
-PANW     0.3995     2.3788     0.4094     5.2955      
-PAYX     0.3995     2.3788     0.4245     3.8715      
-PYPL     0.3995     2.3788     0.3943     5.5602      
-PDD      0.3995     2.3788     0.3996     8.5560      
+--- PHASE 3: SYSTEMATIC SELECTION & ROBUST RISK ANALYSIS ---
+Note: 'WC-CVaR' is the Worst-Case Expected Shortfall derived via Linear Programming (DMP).
+Ticker   Mu(%)    Vol(%)   Gamma    EVT-CVaR   WC-CVaR    Risk Gap  
+---------------------------------------------------------------------------
+PLTR     -0.00    2.33     0.41     8.42       3.19       -5.23     
+NXPI     -0.00    2.33     0.40     4.71       2.10       -2.61     
+ORLY     -0.00    2.33     0.46     3.55       0.59       -2.96     
+ODFL     -0.00    2.33     0.40     4.45       2.10       -2.35     
+ON       -0.00    2.33     0.41     6.78       3.19       -3.60     
+PCAR     -0.00    2.33     0.41     3.35       0.58       -2.77     
+PANW     -0.00    2.33     0.46     5.70       1.55       -4.15     
+PAYX     -0.00    2.33     0.50     4.36       0.60       -3.76     
+PYPL     -0.00    2.33     0.44     5.94       2.54       -3.40     
+PDD      -0.00    2.33     0.44     9.08       3.19       -5.89     
 
 --- PHASE 4: OPTIMIZATION RESULTS ---
 Objective: Minimize CVaR (95%)
-Target Daily Return: > 0.3196%
-Optimized Portfolio CVaR: 0.0288
+Target Daily Return: > 0.0000%
+Optimized Portfolio CVaR: 0.0000
 
 Final Portfolio Allocation:
 Ticker   Weight (%)   Tail Risk (Gamma)   
 --------------------------------------------------
-ON       16.21        0.3746              
-PLTR     15.15        0.4008              
-ODFL     14.82        0.3612              
-PANW     14.02        0.4094              
-NXPI     11.71        0.3709              
-ORLY     7.73         0.3879              
-PDD      7.52         0.3996              
-PCAR     7.10         0.3422              
-PYPL     4.24         0.3943              
-PAYX     1.50         0.4245              
 
 --- PHASE 5: OUT-OF-SAMPLE DIAGNOSTICS (2024+) ---
-Test Set R-Squared: -0.0159
-Cumulative Market Return:   1659.32%
-Cumulative Strategy Return: 1659.32%
+Test Set R-Squared: -0.0006
+Cumulative Market Return:   1719.49%
+Cumulative Strategy Return: 12.66%

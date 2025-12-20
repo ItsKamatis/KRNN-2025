@@ -43,6 +43,25 @@ class ReportGenerator:
         plt.savefig(save_path)
         plt.close()
 
+    def plot_qq_residuals(self, residuals, ticker_name):
+        """
+        Generates a Q-Q plot to visually confirm non-normality.
+        """
+        plt.figure(figsize=(10, 6))
+
+        # Compare residuals against Standard Normal
+        stats.probplot(residuals, dist="norm", plot=plt)
+
+        plt.title(f"Q-Q Plot: {ticker_name} Residuals vs Normal Distribution")
+        plt.xlabel("Theoretical Quantiles (Gaussian)")
+        plt.ylabel("Observed Quantiles (Standardized Residuals)")
+        plt.grid(True, alpha=0.3)
+
+        save_path = os.path.join(self.output_dir, f"qq_{ticker_name}.png")
+        plt.savefig(save_path)
+        plt.close()
+        logger.info(f"Saved Q-Q plot for {ticker_name} to {save_path}")
+
     def plot_tail_comparison(self, tail_data):
         """Visual Evidence of Risk Differentiation."""
         sorted_tickers = sorted(tail_data.keys(), key=lambda k: tail_data[k]['gamma'])

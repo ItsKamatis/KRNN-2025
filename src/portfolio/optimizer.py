@@ -71,10 +71,24 @@ class MeanCVaROptimizer:
 
         # Constraint B: Minimum Return Constraint
         # w^T mu >= target  =>  -w^T mu <= -target
-        row_ret = np.zeros(num_vars)
-        row_ret[idx_w_start:] = -expected_returns
-        A_ub.append(row_ret)
-        b_ub.append(-target_return)
+            # --- Handle Negative Return Targets ---
+            # Logic Fix: If market is down (avg return < 0), we just want to lose LESS than the average.
+            # We set the target to be slightly strictly better (higher) than the worst assets.
+
+            avg_asset_return = np.mean(expected_returns)
+            if avg_asset_return < 0:
+                # If returns are negative, target cannot be positive.
+                # Set target to be the average return (neutral relative performance)
+                effective_target = avg_asset_return
+            else:
+                effective_target = target_return
+
+            # Constraint B: Minimum Return Constraint
+            # w^T mu >= target  =>  -w^T mu <= -target
+            row_ret = np.zeros(num_vars)
+            row_ret[idx_w_start:] = -expected_returns
+            A_ub.append(row_ret)
+            b_ub.append(-effective_target)
 
         A_ub = np.array(A_ub)
         b_ub = np.array(b_ub)

@@ -3,9 +3,9 @@
 # Model architecture
 model:
   input_dim: 10              # Number of features (ensure this reflects the derived features only)
-  hidden_dim: 128            # RNN hidden dimension
-  num_layers: 2              # Number of RNN layers
-  dropout: 0.2               # Dropout rate
+  hidden_dim: 256            # RNN hidden dimension
+  num_layers: 3              # Number of RNN layers
+  dropout: 0.05               # Dropout rate
   bidirectional: true        # Use bidirectional RNN
 
 # MLflow configuration
@@ -20,8 +20,8 @@ mlflow:
 
 # Data processing
 data:
-  window_size: 10           # Lookback window
-  batch_size: 64            # Training batch size
+  window_size: 60           # Lookback window
+  batch_size: 32            # Training batch size
   features:                 # Technical indicators to use (exclude 'Volume')
     - RSI
     - MACD
@@ -52,16 +52,16 @@ experiment:
 
 # Training parameters
 training:
-  epochs: 50
-  learning_rate: 0.001
-  early_stop_patience: 10
+  epochs: 100
+  learning_rate: 0.0005
+  early_stop_patience: 15
   gradient_clip: 1.0
   optimizer: "adam"
   scheduler:              # Learning rate scheduler
     type: "reduce_on_plateau"
-    patience: 5
+    patience: 10
     factor: 0.5
-  patience: 10          # Early stopping patience
+  patience: 15          # Early stopping patience
   min_delta: 0.00001       # Minimum improvement required
   scheduler_patience: 5 # Reduce LR after 5 epochs of no improvement
   scheduler_factor: 0.5 # Halve the
@@ -75,7 +75,7 @@ paths:
 # Hardware
 hardware:
   gpu: 0                  # -1 for CPU, >=0 for specific GPU
-  num_workers: 4          # DataLoader workers
+  num_workers: 12          # DataLoader workers
   pin_memory: true        # Pin memory for GPU training
 
 # Additional Sections (Optional)
@@ -83,7 +83,7 @@ hardware:
 # Feature Engineering Configuration
 feature_engineering:
   volume_features:
-    - moving_average: 5   # 5-day moving average
+    - moving_average: 3   # 5-day moving average
     - percentage_change: true  # Calculate percentage change
   # Add more derived features as needed
 
@@ -101,5 +101,5 @@ debug: true
 portfolio:
   top_n_assets: 10          # The Funnel: How many winners to select for optimization
   risk_confidence: 0.95     # CVaR confidence level (95% is standard for daily)
-  n_simulations: 1000       # Monte Carlo scenarios per asset
-  target_return_factor: 0.8 # Target 80% of the average winner's return (Feasibility buffer)
+  n_simulations: 10000       # Monte Carlo scenarios per asset
+  target_return_factor: 0.85 # Target 80% of the average winner's return (Feasibility buffer)

@@ -7,7 +7,6 @@ import random
 import os
 from torch.utils.data import DataLoader
 from pathlib import Path
-from src.risk.moment_bounds import DiscreteMomentSolver
 
 # Import our custom modules
 from src.data.data_collector_v5 import DataCollector
@@ -15,8 +14,10 @@ from src.data.dataset_v5 import DataModule, DataConfig, StockDataset
 from src.model.krnn_v5 import KRNNRegressor, ModelConfig
 from src.utils.trainer_v5 import Trainer
 from src.risk.evt import EVTEngine
+from src.risk.moment_bounds import DiscreteConditionalMomentSolver
 from src.portfolio.optimizer import MeanCVaROptimizer
 from src.utils.generate_report import ReportGenerator
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 
 def set_seed(seed=42):
-    """Ensures reproducibility across the entire pipeline."""
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
@@ -41,11 +41,9 @@ def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
         config = yaml.safe_load(f)
     data_dir = Path(config['paths']['data'])
     required_files = ['train.parquet', 'validation.parquet', 'test.parquet']
-
     if all((data_dir / f).exists() for f in required_files):
         logger.info("Data files found. Skipping download.")
         return config
-
     logger.info("Data files missing. Starting Data Collection...")
     collector = DataCollector(config)
     collector.collect_data(start_date=config['data']['train_start'])
@@ -76,31 +74,23 @@ def run_project_pipeline():
         input_dim=feature_dim,
         hidden_dim=config_dict['model']['hidden_dim'],
         k_dups=3,
-        output_dim=2,  # Mu and Sigma
+        output_dim=2,
         dropout=config_dict['model']['dropout'],
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
     model = KRNNRegressor(model_config)
     trainer = Trainer(model, config=config_dict)
-
-    # Train
-    training_metrics = trainer.train(
-        train_loader=dataloaders['train'],
-        val_loader=dataloaders['val']
-    )
+    training_metrics = trainer.train(train_loader=dataloaders['train'], val_loader=dataloaders['val'])
     print(f"Training Complete. Final Val GNLL: {training_metrics.get('loss', 'N/A')}")
 
-    # --- Step 3: The Systematic Funnel ---
-    print("\n[Phase 3] Running Systematic Portfolio Selection...")
+    # --- Step 3: Systematic Portfolio Selection ---
+    print("\n[Phase 3] Running Systematic Portfolio Selection & Robust Risk Analysis...")
 
     val_df_path = Path(config_dict['paths']['data']) / 'validation.parquet'
     val_df = pd.read_parquet(val_df_path)
     all_tickers = val_df['Ticker'].unique()
-    print(f"1. Universe Scan: Found {len(all_tickers)} tickers.")
 
-    print("2. Alpha Filter: Ranking assets by Predicted Return...")
     candidates = []
-
     # Configs
     top_n = config_dict.get('portfolio', {}).get('top_n_assets', 10)
     risk_conf = config_dict.get('portfolio', {}).get('risk_confidence', 0.95)
@@ -108,20 +98,14 @@ def run_project_pipeline():
 
     model.eval()
 
-    all_regime_mus = []
-    all_regime_sigmas = []
-
+    # --- 3a. Inference & Alpha Scan ---
     for ticker in all_tickers:
         ticker_df = val_df[val_df['Ticker'] == ticker].copy()
         if len(ticker_df) < data_config.sequence_length + 20:
             continue
-
         ticker_ds = StockDataset(ticker_df, data_config.sequence_length)
         ticker_loader = DataLoader(ticker_ds, batch_size=64, shuffle=False)
-
-        mus = []
-        sigmas = []
-        targets = []
+        mus, sigmas, targets = [], [], []
         with torch.no_grad():
             for feat, targ in ticker_loader:
                 feat = feat.to(model_config.device)
@@ -129,7 +113,6 @@ def run_project_pipeline():
                 mus.append(mu.cpu().numpy())
                 sigmas.append(sigma.cpu().numpy())
                 targets.append(targ.cpu().numpy())
-
         mus = np.concatenate(mus)
         sigmas = np.concatenate(sigmas)
         targets = np.concatenate(targets)
@@ -137,10 +120,8 @@ def run_project_pipeline():
         avg_pred_return = np.mean(mus)
         avg_pred_volatility = np.mean(sigmas)
 
-        all_regime_mus.append(avg_pred_return)
-        all_regime_sigmas.append(avg_pred_volatility)
-
-        residuals = (targets.flatten() - mus.flatten()) / sigmas.flatten()
+        # Calculate residuals (Z-scores)
+        residuals = (targets.flatten() - mus.flatten()) / (sigmas.flatten() + 1e-6)  # Avoid div/0
 
         candidates.append({
             'Ticker': ticker,
@@ -149,50 +130,46 @@ def run_project_pipeline():
             'Residuals': residuals
         })
 
-    reporter.plot_regime_clustering(all_regime_mus, all_regime_sigmas)
-
     candidates.sort(key=lambda x: x['Pred_Return'], reverse=True)
     top_candidates = candidates[:top_n]
-
     print(f"   Selected Top {len(top_candidates)} Candidates.")
 
-    print(f"\n3. Risk Filter: Analyzing Tails (EVT) & Estimating Robust Bounds (DMP)...")
+    # --- 3b. Robust Risk Analysis (EVT + DCMP) ---
+    print(f"\n3. Risk Filter: Analyzing Heavy Tails (EVT) & Bounds (Naumova DCMP)...")
 
     scenarios_list = []
     final_tickers = []
     expected_returns_vec = []
 
     evt_engine = EVTEngine(tail_fraction=0.10)
-    dmp_solver = DiscreteMomentSolver(support_points=500)  # 500 points for speed
+    # Instantiate the new Naumova Solver
+    dcmp_solver = DiscreteConditionalMomentSolver(n_points=500, support_range=(-10.0, 10.0))
 
     tail_data = {}
     candidates_report_data = []
-    bounds_report_data = []  # New list for DMP results
+    bounds_report_data = []  # For the "Risk Gap" chart
 
     for cand in top_candidates:
         ticker = cand['Ticker']
         residuals = cand['Residuals']
 
-        # A. EVT Analysis (Hill Estimator)
+        # 1. EVT Analysis (Parametric Tail)
         evt_params = evt_engine.analyze_tails(residuals)
         gamma = evt_params['gamma']
-        risk_metrics = evt_engine.calculate_risk_metrics(evt_params)  # Gets EVT-ES
+        evt_metrics = evt_engine.calculate_risk_metrics(evt_params)
+        evt_cvar = evt_metrics['ES_0.99']
 
-        # B. Discrete Moment Problem (Robust Bounds)
-        # We compute the Worst-Case CVaR using the first 4 moments of the residuals
-        dmp_bounds = dmp_solver.fit_and_estimate(
-            residuals,
-            confidence_level=0.99,
-            n_moments=4  # Mean, Var, Skew, Kurtosis
-        )
+        # 2. DCMP Analysis (Robust Bound with Conditional Constraints)
+        # We pass use_conditional=True to use Naumova's method
+        dcmp_result = dcmp_solver.solve_dcmp(residuals, alpha=0.05, use_conditional=True)
+        wc_cvar = dcmp_result.wc_cvar
 
-        # Store Data
-        tail_data[ticker] = {
-            'gamma': gamma,
-            'residuals': residuals
-        }
+        # Calculate Risk Gap
+        risk_gap = wc_cvar - evt_cvar
 
-        # Generate Scenarios (using EVT logic for optimization input)
+        tail_data[ticker] = {'gamma': gamma, 'residuals': residuals}
+
+        # Generate Scenarios (Using EVT logic for the optimizer input)
         scenarios = evt_engine.generate_scenarios(
             n_simulations=n_sims,
             gamma=gamma,
@@ -203,40 +180,44 @@ def run_project_pipeline():
         final_tickers.append(ticker)
         expected_returns_vec.append(cand['Pred_Return'])
 
-        # Report Data Structs
         candidates_report_data.append({
             'Ticker': ticker,
             'Mu': cand['Pred_Return'],
             'Sigma': cand['Pred_Vol'],
             'Gamma': gamma,
-            'ES': risk_metrics['ES_0.99']  # EVT Estimate
+            'ES': evt_cvar,
+            'WC_ES': wc_cvar,  # Add for report
+            'Gap': risk_gap
         })
 
         bounds_report_data.append({
             'Ticker': ticker,
-            'EVT_CVaR': risk_metrics['ES_0.99'],
-            'DMP_CVaR': dmp_bounds.wc_cvar_z,
+            'EVT_CVaR': evt_cvar,
+            'DMP_CVaR': wc_cvar,
             'Gamma': gamma
         })
 
         print(
-            f"   - {ticker}: Gamma={gamma:.2f} | EVT-CVaR={risk_metrics['ES_0.99']:.2f} | WC-CVaR={dmp_bounds.wc_cvar_z:.2f}")
+            f"   - {ticker}: Gamma={gamma:.2f} | EVT-CVaR={evt_cvar:.2f} | DCMP-CVaR={wc_cvar:.2f} | Gap={risk_gap:.2f}")
 
-    # Plotting
     reporter.plot_tail_comparison(tail_data)
-    reporter.plot_risk_bounds_comparison(bounds_report_data)  # New Plot
+    # Make sure your reporter class has the plot_risk_bounds_comparison method we added in thoughts
+    if hasattr(reporter, 'plot_risk_bounds_comparison'):
+        reporter.plot_risk_bounds_comparison(bounds_report_data)
 
     print("\n4. Optimization: Minimizing Portfolio CVaR...")
-
     portfolio_report_data = []
     opt_metrics = {}
 
     if len(scenarios_list) > 1:
         scenarios_matrix = np.column_stack(scenarios_list)
         expected_returns_vec = np.array(expected_returns_vec)
-
         optimizer = MeanCVaROptimizer(confidence_level=risk_conf)
-        target_ret = np.mean(expected_returns_vec) * config_dict.get('portfolio', {}).get('target_return_factor', 0.8)
+        # --- FIX TARGET LOGIC HERE ---
+        avg_mu = np.mean(expected_returns_vec)
+        # If returns are negative, don't multiply by 0.8 (which makes them 'higher' closer to 0)
+        # Instead, just pass the raw average as the baseline
+        target_ret = avg_mu * config_dict.get('portfolio', {}).get('target_return_factor', 0.8)
 
         result = optimizer.optimize(expected_returns_vec, scenarios_matrix, target_ret)
 
@@ -245,67 +226,47 @@ def run_project_pipeline():
             opt_metrics['Target_Ret'] = target_ret
             opt_metrics['CVaR'] = result['CVaR_Optimal']
 
-            print("\n=== FINAL HETEROSCEDASTIC PORTFOLIO ===")
             allocations = sorted(zip(final_tickers, final_weights), key=lambda x: x[1], reverse=True)
             for ticker, weight in allocations:
                 if weight > 0.001:
-                    print(f"{ticker:<6}: {weight * 100:.2f}%")
+                    portfolio_report_data.append({
+                        'Ticker': ticker, 'Weight': weight, 'Gamma': tail_data[ticker]['gamma']
+                    })
 
-                # Store for Report
-                portfolio_report_data.append({
-                    'Ticker': ticker,
-                    'Weight': weight,
-                    'Gamma': tail_data[ticker]['gamma']
-                })
-
-            # Use original unsorted lists for plotting alignment
             gammas = [tail_data[t]['gamma'] for t in final_tickers]
             reporter.plot_allocation_vs_risk(final_tickers, final_weights, gammas)
-
         else:
             print("Optimizer failed.")
 
-    # --- Phase 4: Evaluation & Diagnostics ---
+    # --- Phase 4: Evaluation ---
     print("\n[Phase 4] Out-of-Sample Evaluation...")
-
     test_loader = dataloaders['test']
     model.eval()
-
-    all_mus = []
-    all_targets = []
-
+    all_mus, all_targets = [], []
     with torch.no_grad():
         for feat, targ in test_loader:
             feat = feat.to(model_config.device)
-            mu, sigma = model(feat)
+            mu, _ = model(feat)
             all_mus.append(mu.cpu().numpy())
             all_targets.append(targ.cpu().numpy().flatten())
 
     all_mus = np.concatenate(all_mus)
     all_targets = np.concatenate(all_targets)
-
-    # Run Diagnostics and get R2
     r2 = reporter.generate_diagnostics(all_mus, all_targets)
 
-    # Calculate Cumulative Returns for Report
+    # Simple strategy simulation
     cum_market = np.cumsum(all_targets)
-    cum_strategy = np.cumsum(np.where(all_mus > 0, all_targets, 0))  # Simple Long-Only Logic
+    cum_strategy = np.cumsum(np.where(all_mus > 0, all_targets, 0))
+    test_metrics = {'R2': r2, 'Market_Cum': cum_market[-1], 'Strategy_Cum': cum_strategy[-1]}
 
-    test_metrics = {
-        'R2': r2,
-        'Market_Cum': cum_market[-1],
-        'Strategy_Cum': cum_strategy[-1]
-    }
-
-    # SAVE ALL TEXT DATA
+    # Pass the new Naumova bounds data to the report
     reporter.save_comprehensive_report(
         candidates=candidates_report_data,
         portfolio=portfolio_report_data,
         opt_metrics=opt_metrics,
         test_metrics=test_metrics,
-        bounds_data=bounds_report_data  # Pass new data
+        bounds_data=bounds_report_data
     )
-
     print(f"\nPipeline Complete. Reports generated in {reporter.output_dir}")
 
 
