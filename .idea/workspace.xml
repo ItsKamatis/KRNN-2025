@@ -6,16 +6,18 @@
   <component name="ChangeListManager">
     <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Finalizing">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config_v5.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config_v5.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/test.parquet" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/train.parquet" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/validation.parquet" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/main_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_pipeline.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/1_regime_clustering.png" beforeDir="false" afterPath="$PROJECT_DIR$/reports/1_regime_clustering.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/2_tail_differentiation.png" beforeDir="false" afterPath="$PROJECT_DIR$/reports/2_tail_differentiation.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/3_allocation_logic.png" beforeDir="false" afterPath="$PROJECT_DIR$/reports/3_allocation_logic.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/4_prediction_accuracy.png" beforeDir="false" afterPath="$PROJECT_DIR$/reports/4_prediction_accuracy.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/comprehensive_summary.txt" beforeDir="false" afterPath="$PROJECT_DIR$/reports/comprehensive_summary.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/reports/1_regime_clustering.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/reports/2_tail_differentiation.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/reports/3_allocation_logic.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/reports/4_prediction_accuracy.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/reports/5_risk_bounds_gap.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/reports/comprehensive_summary.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/data/data_collector_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/data/data_collector_v5.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/portfolio/optimizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/portfolio/optimizer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/risk/moment_bounds.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/risk/moment_bounds.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/generate_report.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/generate_report.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -139,7 +141,7 @@
       <workItem from="1766018570811" duration="2964000" />
       <workItem from="1766021730839" duration="14850000" />
       <workItem from="1766080851902" duration="900000" />
-      <workItem from="1766111641798" duration="11441000" />
+      <workItem from="1766111641798" duration="15288000" />
     </task>
     <task id="LOCAL-00001" summary="initial commit">
       <option name="closed" value="true" />
@@ -237,7 +239,23 @@
       <option name="project" value="LOCAL" />
       <updated>1766115981014</updated>
     </task>
-    <option name="localTasksCounter" value="13" />
+    <task id="LOCAL-00013" summary="Finalizing">
+      <option name="closed" value="true" />
+      <created>1766214079535</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1766214079535</updated>
+    </task>
+    <task id="LOCAL-00014" summary="Finalizing">
+      <option name="closed" value="true" />
+      <created>1766214207625</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1766214207625</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -264,7 +282,7 @@
     </breakpoint-manager>
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/KRNN$main_pipeline.coverage" NAME="main_pipeline Coverage Results" MODIFIED="1766210308334" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/KRNN$main_pipeline.coverage" NAME="main_pipeline Coverage Results" MODIFIED="1766215926552" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/KRNN$data_collector_v5.coverage" NAME="data_collector_v5 Coverage Results" MODIFIED="1766022523526" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/data" />
     <SUITE FILE_PATH="coverage/KRNN$generate_report.coverage" NAME="generate_report Coverage Results" MODIFIED="1766202975126" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/utils" />
   </component>

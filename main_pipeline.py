@@ -46,7 +46,7 @@ def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
         return config
     logger.info("Data files missing. Starting Data Collection...")
     collector = DataCollector(config)
-    collector.collect_data(start_date=config['data']['train_start'])
+    collector.collect_data()
     return config
 
 
@@ -213,11 +213,16 @@ def run_project_pipeline():
         scenarios_matrix = np.column_stack(scenarios_list)
         expected_returns_vec = np.array(expected_returns_vec)
         optimizer = MeanCVaROptimizer(confidence_level=risk_conf)
-        # --- FIX TARGET LOGIC HERE ---
+
         avg_mu = np.mean(expected_returns_vec)
-        # If returns are negative, don't multiply by 0.8 (which makes them 'higher' closer to 0)
-        # Instead, just pass the raw average as the baseline
-        target_ret = avg_mu * config_dict.get('portfolio', {}).get('target_return_factor', 0.8)
+
+        if avg_mu > 0:
+            # Normal market: Target 80% of the average return
+            target_ret = avg_mu * config_dict.get('portfolio', {}).get('target_return_factor', 0.8)
+        else:
+            # Bear market: Target the average (don't try to outperform by losing less, just match)
+            # This ensures the constraint w^T*mu >= target is feasible (target <= max_asset_return)
+            target_ret = avg_mu
 
         result = optimizer.optimize(expected_returns_vec, scenarios_matrix, target_ret)
 
