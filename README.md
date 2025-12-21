@@ -1,6 +1,3 @@
-Below is a clean, professor-friendly README you can drop into `README.md`. It matches your repo’s actual pipeline (KRNN → GNLL → EVT → Mean-CVaR → DCMP bounds) and includes the key math without turning into a textbook. Replace the placeholders (badges, images, exact paths) if your repo differs.
-
-````markdown
 # KRNN Risk Management Pipeline (Tail-Risk Parity Portfolio)
 
 A full end-to-end risk management pipeline for constructing portfolios that stay robust in crash regimes where Gaussian assumptions fail.
@@ -119,7 +116,7 @@ source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
 pip install -r requirements.txt
 ````
 
-If TA-Lib is used for indicators, make sure it is installed correctly on your OS.
+TA-Lib is used for indicators, make sure it is installed correctly on your OS.
 
 ---
 
@@ -149,7 +146,7 @@ You should see:
 * “Top 10 candidates” with predicted μ and σ
 * EVT tail index γ and ES(Z) per asset
 * final Mean-CVaR weights and portfolio CVaR(95)
-* test diagnostics and saved performance plot (e.g., `test_performance.png`)
+* test diagnostics and saved performance plot
 
 ---
 
