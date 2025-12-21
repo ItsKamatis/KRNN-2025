@@ -38,7 +38,7 @@ A typical run shows a “mean collapse” symptom: predicted μ and σ become ne
 pip install -r requirements.txt
 ```
 
-**TA-Lib note:** TA-Lib can be the only annoying dependency on Windows. If pip install fails, install TA-Lib via a platform-appropriate method (often easiest via conda-forge), then re-run the requirements install.
+**TA-Lib note:** TA-Lib can be is an annoying dependency on Windows. If pip install fails, install TA-Lib via a platform-appropriate method (often easiest via conda-forge), then re-run the requirements install.
 
 ### 2) Run the full pipeline
 
