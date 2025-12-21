@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Naumova DMP">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Naumova DMP" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -61,7 +59,7 @@
     &quot;git-widget-placeholder&quot;: &quot;master&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;D:/Program Files/Python/python.exe&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/PyCharmProjects/KRNN&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -73,6 +71,9 @@
   }
 }</component>
   <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="D:\PyCharmProjects\KRNN" />
+    </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="D:\PyCharm Projects\KRNN_V5" />
     </key>
@@ -157,6 +158,7 @@
       <workItem from="1766111641798" duration="15288000" />
       <workItem from="1766253958435" duration="9062000" />
       <workItem from="1766292045816" duration="4000" />
+      <workItem from="1766293094149" duration="188000" />
     </task>
     <task id="LOCAL-00001" summary="initial commit">
       <option name="closed" value="true" />
@@ -278,7 +280,23 @@
       <option name="project" value="LOCAL" />
       <updated>1766263553789</updated>
     </task>
-    <option name="localTasksCounter" value="16" />
+    <task id="LOCAL-00016" summary="Naumova DMP">
+      <option name="closed" value="true" />
+      <created>1766293146104</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1766293146104</updated>
+    </task>
+    <task id="LOCAL-00017" summary="Naumova DMP">
+      <option name="closed" value="true" />
+      <created>1766293278976</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1766293278976</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
