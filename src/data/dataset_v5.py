@@ -126,15 +126,21 @@ class DataModule:
         self.test_dataset = StockDataset(test_data, self.config.sequence_length)
 
     def get_dataloaders(self) -> Dict[str, DataLoader]:
+        # Note: On Windows, num_workers>0 can duplicate RAM due to spawn/pickle.
+        # Keep num_workers=0 unless you're sure it's stable.
+        kwargs_common = {
+            "batch_size": self.config.batch_size,
+            "num_workers": self.config.num_workers,
+            "pin_memory": self.config.pin_memory,
+            "persistent_workers": (self.config.num_workers > 0),
+        }
         return {
             'train': DataLoader(
                 self.train_dataset,
-                batch_size=self.config.batch_size,
                 shuffle=self.config.train_shuffle,
-                num_workers=self.config.num_workers,
-                pin_memory=self.config.pin_memory,
-                persistent_workers=(self.config.num_workers > 0)  # Keeps workers alive
+                drop_last=True,  # consistent batch shapes helps GPU kernels
+                **kwargs_common,
             ),
-            'val': DataLoader(self.val_dataset, batch_size=self.config.batch_size, shuffle=False),
-            'test': DataLoader(self.test_dataset, batch_size=self.config.batch_size, shuffle=False)
+            'val': DataLoader(self.val_dataset, shuffle=False, **kwargs_common),
+            'test': DataLoader(self.test_dataset, shuffle=False, **kwargs_common)
         }

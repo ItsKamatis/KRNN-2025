@@ -22,16 +22,33 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def set_seed(seed=2304571):
+def set_seed(seed: int = 2304571, deterministic: bool = False):
+    """Seed RNGs and optionally force deterministic cuDNN.
+
+    For speed on RTX 4090, keep deterministic=False so we can enable:
+      - cuDNN benchmark (autotuner)
+      - TF32 matmul (fast fp32)
+    """
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    logger.info(f"Global Seed set to {seed}")
+
+    torch.backends.cudnn.deterministic = bool(deterministic)
+    torch.backends.cudnn.benchmark = not bool(deterministic)
+
+    # 4090: TF32 is a big speed win for RNN matmuls with minimal accuracy loss.
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        # PyTorch 2.x: nudges matmul kernels toward faster implementations
+        torch.set_float32_matmul_precision("high")
+    except Exception:
+        pass
+
+    logger.info(f"Global Seed set to {seed} (deterministic={deterministic})")
 
 
 def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
@@ -50,16 +67,22 @@ def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
 
 def run_project_pipeline():
     # --- Step 0: Robustness & Init ---
-    set_seed(42)
     print("\n[Phase 0] Initializing Pipeline & Checking Data...")
     config_dict = initialize_data_pipeline("config_v5.yaml")
+
+    # Speed vs reproducibility toggle
+    deterministic = bool(config_dict.get('training', {}).get('deterministic', False))
+    set_seed(42, deterministic=deterministic)
+
     reporter = ReportGenerator(output_dir="./reports")
 
     # --- Step 1: Data Loading ---
     print("\n[Phase 1] Loading Data Module (RAM Cache)...")
     data_config = DataConfig(
         sequence_length=config_dict['data']['window_size'],
-        batch_size=config_dict['data']['batch_size']
+        batch_size=config_dict['data']['batch_size'],
+        num_workers=int(config_dict.get('hardware', {}).get('num_workers', 0)),
+        pin_memory=bool(config_dict.get('hardware', {}).get('pin_memory', True)),
     )
     data_module = DataModule(data_config)
     data_module.setup(Path(config_dict['paths']['data']))
@@ -77,6 +100,15 @@ def run_project_pipeline():
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
     model = KRNNRegressor(model_config)
+
+    # Optional: torch.compile can help reduce Python overhead (PyTorch 2.x)
+    if bool(config_dict.get('training', {}).get('compile', False)) and model_config.device.startswith('cuda'):
+        try:
+            model = torch.compile(model, mode="max-autotune")
+            logger.info("torch.compile enabled (mode=max-autotune)")
+        except Exception as e:
+            logger.warning(f"torch.compile failed, continuing without it: {e}")
+
     trainer = Trainer(model, config=config_dict)
     training_metrics = trainer.train(train_loader=dataloaders['train'], val_loader=dataloaders['val'])
     print(f"Training Complete. Final Val GNLL: {training_metrics.get('loss', 'N/A')}")
@@ -96,28 +128,58 @@ def run_project_pipeline():
 
     model.eval()
 
+    # Inference settings (higher batch -> more GPU memory -> higher throughput)
+    infer_bs = int(config_dict.get('data', {}).get('inference_batch_size', max(1024, data_config.batch_size * 16)))
+    use_amp_infer = bool(config_dict.get('training', {}).get('use_amp', True)) and model_config.device.startswith('cuda')
+    amp_dtype = str(config_dict.get('training', {}).get('amp_dtype', 'bf16')).lower()
+    infer_dtype = torch.bfloat16 if amp_dtype == 'bf16' else torch.float16
+
     # --- 3a. Inference & Alpha Scan ---
     for ticker in all_tickers:
         ticker_df = val_df[val_df['Ticker'] == ticker].copy()
         if len(ticker_df) < data_config.sequence_length + 20:
             continue
         ticker_ds = StockDataset(ticker_df, data_config.sequence_length)
-        ticker_loader = DataLoader(ticker_ds, batch_size=64, shuffle=False)
-        mus, sigmas, targets = [], [], []
-        with torch.no_grad():
-            for feat, targ in ticker_loader:
-                feat = feat.to(model_config.device)
-                mu, sigma = model(feat)
-                mus.append(mu.cpu().numpy())
-                sigmas.append(sigma.cpu().numpy())
-                targets.append(targ.cpu().numpy())
-        mus = np.concatenate(mus)
-        sigmas = np.concatenate(sigmas)
-        targets = np.concatenate(targets)
+        ticker_loader = DataLoader(
+            ticker_ds,
+            batch_size=infer_bs,
+            shuffle=False,
+            num_workers=data_config.num_workers,
+            pin_memory=data_config.pin_memory,
+            persistent_workers=(data_config.num_workers > 0),
+        )
 
-        avg_pred_return = np.mean(mus)
-        avg_pred_volatility = np.mean(sigmas)
-        residuals = (targets.flatten() - mus.flatten()) / (sigmas.flatten() + 1e-6)
+        # Keep everything on GPU during the loop; transfer to CPU once per ticker.
+        device = model_config.device
+        sum_mu = torch.zeros((), device=device)
+        sum_sigma = torch.zeros((), device=device)
+        count = 0
+        residual_chunks = []
+
+        with torch.inference_mode():
+            for feat, targ in ticker_loader:
+                feat = feat.to(device, non_blocking=True)
+                targ = targ.to(device, non_blocking=True).squeeze(-1).float()
+
+                if use_amp_infer and device.startswith('cuda'):
+                    with torch.autocast(device_type='cuda', dtype=infer_dtype):
+                        mu, sigma = model(feat)
+                else:
+                    mu, sigma = model(feat)
+
+                sum_mu += mu.sum()
+                sum_sigma += sigma.sum()
+                count += mu.numel()
+
+                # Standardized residuals Z = (y - mu)/sigma
+                residual_chunks.append(((targ - mu) / (sigma + 1e-6)).detach())
+
+        if count == 0:
+            continue
+
+        avg_pred_return = float((sum_mu / count).item())
+        avg_pred_volatility = float((sum_sigma / count).item())
+        residuals = torch.cat(residual_chunks, dim=0).float().cpu().numpy()
 
         candidates.append({
             'Ticker': ticker,

@@ -4,7 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Naumova DMP" />
+    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Naumova DMP">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -159,6 +161,8 @@
       <workItem from="1766253958435" duration="9062000" />
       <workItem from="1766292045816" duration="4000" />
       <workItem from="1766293094149" duration="188000" />
+      <workItem from="1766293304170" duration="23000" />
+      <workItem from="1766352227444" duration="6000" />
     </task>
     <task id="LOCAL-00001" summary="initial commit">
       <option name="closed" value="true" />
@@ -296,7 +300,15 @@
       <option name="project" value="LOCAL" />
       <updated>1766293278976</updated>
     </task>
-    <option name="localTasksCounter" value="18" />
+    <task id="LOCAL-00018" summary="Naumova DMP">
+      <option name="closed" value="true" />
+      <created>1766293323495</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1766293323495</updated>
+    </task>
+    <option name="localTasksCounter" value="19" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
