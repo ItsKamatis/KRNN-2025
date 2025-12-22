@@ -182,23 +182,28 @@ class ReportGenerator:
             f.write("============================================\n\n")
 
             f.write("--- PHASE 3: SYSTEMATIC SELECTION & ROBUST RISK ANALYSIS ---\n")
-            f.write("Note: 'WC-CVaR' is the Worst-Case Expected Shortfall derived via Linear Programming (DMP).\n")
+            f.write("Note: WC-VaR/WC-CVaR are Worst-Case bounds derived via Linear Programming (Discrete Moment Problem).\n")
             f.write(
-                f"{'Ticker':<8} {'Mu(%)':<8} {'Vol(%)':<8} {'Gamma':<8} {'EVT-CVaR':<10} {'WC-CVaR':<10} {'Risk Gap':<10}\n")
-            f.write("-" * 75 + "\n")
+                f"{'Ticker':<8} {'Mu(%)':<8} {'Vol(%)':<8} {'Gamma':<8} {'EVT-VaR':<10} {'WC-VaR':<10} {'EVT-CVaR':<10} {'WC-CVaR':<10} {'Risk Gap':<10}\n")
+            f.write("-" * 110 + "\n")
 
-            # Map bounds data for easy access
+            # Map bounds data for easy access (CVaR)
             dmp_map = {x['Ticker']: x['DMP_CVaR'] for x in (bounds_data or [])}
 
             for c in candidates:
                 dmp_val = dmp_map.get(c['Ticker'], 0.0)
-                risk_gap = dmp_val - c['ES']
+                evt_var = c.get('VaR', 0.0)
+                wc_var = c.get('WC_VaR', 0.0)
+                evt_cvar = c.get('ES', 0.0)
+                risk_gap = dmp_val - evt_cvar
                 f.write(
                     f"{c['Ticker']:<8} "
                     f"{c['Mu'] * 100:<8.2f} "
                     f"{c['Sigma'] * 100:<8.2f} "
                     f"{c['Gamma']:<8.2f} "
-                    f"{c['ES']:<10.2f} "
+                    f"{evt_var:<10.2f} "
+                    f"{wc_var:<10.2f} "
+                    f"{evt_cvar:<10.2f} "
                     f"{dmp_val:<10.2f} "
                     f"{risk_gap:<10.2f}\n"
                 )

@@ -150,10 +150,11 @@ def run_project_pipeline():
 
         evt_params = evt_engine.analyze_tails(residuals)
         gamma = evt_params['gamma']
-        evt_metrics = evt_engine.calculate_risk_metrics(evt_params)
+        evt_metrics = evt_engine.calculate_risk_metrics(evt_params, confidence_level=risk_conf)
 
-        dcmp_result = dcmp_solver.solve_dcmp(residuals, alpha=0.05, use_conditional=True)
-        risk_gap = dcmp_result.wc_cvar - evt_metrics['ES_0.99']
+        alpha = 1 - risk_conf
+        dcmp_result = dcmp_solver.solve_dcmp(residuals, alpha=alpha, use_conditional=True)
+        risk_gap = dcmp_result.wc_cvar - evt_metrics[f"ES_{risk_conf}"]
 
         tail_data[ticker] = {'gamma': gamma, 'residuals': residuals}
 
@@ -167,20 +168,22 @@ def run_project_pipeline():
         final_tickers.append(ticker)
         expected_returns_vec.append(cand['Pred_Return'])
 
-        candidates_report_data.append({
-            'Ticker': ticker,
+        candidates_report_data.append({'Ticker': ticker,
             'Mu': cand['Pred_Return'],
             'Sigma': cand['Pred_Vol'],
             'Gamma': gamma,
-            'ES': evt_metrics['ES_0.99'],
+            'VaR': evt_metrics[f"VaR_{risk_conf}"],
+            'ES': evt_metrics[f"ES_{risk_conf}"],
+            'WC_VaR': dcmp_result.wc_var,
             'WC_ES': dcmp_result.wc_cvar,
-            'Gap': risk_gap
-        })
+            'Gap': risk_gap})
 
-        bounds_report_data.append({
-            'Ticker': ticker, 'EVT_CVaR': evt_metrics['ES_0.99'],
-            'DMP_CVaR': dcmp_result.wc_cvar, 'Gamma': gamma
-        })
+        bounds_report_data.append({'Ticker': ticker,
+            'EVT_VaR': evt_metrics[f"VaR_{risk_conf}"],
+            'EVT_CVaR': evt_metrics[f"ES_{risk_conf}"],
+            'DMP_VaR': dcmp_result.wc_var,
+            'DMP_CVaR': dcmp_result.wc_cvar,
+            'Gamma': gamma})
 
         print(f"   - {ticker}: Gamma={gamma:.2f} | Gap={risk_gap:.2f}")
 

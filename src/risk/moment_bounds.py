@@ -1,175 +1,232 @@
-import numpy as np
-import scipy.optimize as optimize
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import Tuple, List
+
+import numpy as np
+from scipy.optimize import linprog, OptimizeResult
 
 
 @dataclass
 class RobustBounds:
     """Stores the risk metrics from the Discrete Conditional Moment Problem."""
     confidence_level: float
-    wc_var: float  # Worst-Case VaR
-    wc_cvar: float  # Worst-Case CVaR
-    dmp_type: str  # 'Standard' or 'Conditional (DCMP)'
-    gap: float  # Difference between Worst-Case and Empirical/EVT
+    wc_var: float   # Worst-Case VaR (reported as positive loss)
+    wc_cvar: float  # Worst-Case CVaR (reported as positive loss)
+    dmp_type: str   # 'Standard' or 'Conditional (DCMP)' or other status
+    gap: float      # Difference between Worst-Case and Empirical/EVT (computed elsewhere)
 
 
 class DiscreteConditionalMomentSolver:
     """
-    Solves the Discrete Conditional Moment Problem (DCMP) based on Naumova (2015).
+    Discrete Moment Problem (DMP) / Discrete Conditional Moment Problem (DCMP) solver.
 
-    This solver partitions the support into regions (e.g., Body vs Tail) and
-    allows enforcing moment constraints specifically within those regions.
-    This tightens the risk bounds by incorporating 'shape' information.
+    We approximate the (standardized) residual distribution Z by a discrete distribution on a grid z_i
+    with unknown probabilities p_i. We enforce moment matching constraints on p_i. Optionally we add
+    relaxed (toleranced) constraints that "anchor" the left tail (DCMP idea).
+
+    Then we compute a *worst-case* CVaR bound by solving an LP using the dual form of CVaR.
+
+    Conventions:
+      - data are standardized returns Z (negative is bad)
+      - losses are L = -Z (positive is bad)
+      - alpha is tail probability (e.g. 0.05 => 95% confidence)
+      - we return wc_var, wc_cvar as POSITIVE LOSS metrics
     """
 
     def __init__(self, n_points: int = 500, support_range: Tuple[float, float] = (-10.0, 10.0)):
-        self.n_points = n_points
+        self.n_points = int(n_points)
         self.range = support_range
-        # Create the grid of potential outcomes (z-scores)
-        self.z_grid = np.linspace(support_range[0], support_range[1], n_points)
+        self.z_grid = np.linspace(float(support_range[0]), float(support_range[1]), self.n_points)
 
-    def solve_dcmp(self,
-                   data: np.ndarray,
-                   alpha: float = 0.05,
-                   use_conditional: bool = True) -> RobustBounds:
+    def solve_dcmp(
+        self,
+        data: np.ndarray,
+        alpha: float = 0.05,
+        use_conditional: bool = True,
+        tail_mass_tol: float = 0.02,
+        tail_mean_rel_tol: float = 0.05,
+        solver_method: str = "highs",
+    ) -> RobustBounds:
         """
-        Estimates Worst-Case Risk using DCMP.
+        Worst-case VaR/CVaR bound via DMP/DCMP.
 
-        Args:
-            data: Standardized residuals (Z-scores).
-            alpha: Risk level (e.g., 0.05 for 95% confidence).
-            use_conditional: If True, adds constraints on the tail moments.
+        Core LP (dual CVaR):
+          variables: p_i (distribution on grid), w_i (tail reweighting)
+          maximize:  sum_i w_i * L_i   where L_i = -z_i
+          s.t.:      sum_i w_i = 1,  w_i >= 0
+                    alpha * w_i <= p_i    for all i
+                    p_i >= 0, sum p_i = 1
+                    moment matching constraints on p
+
+        Optional DCMP tail-anchor (relaxed inequalities on p):
+          - tail mass around alpha below empirical q_alpha
+          - tail first moment around alpha * E[Z | Z <= q_alpha]
         """
-        # 1. Global Moments (The "Physics" of the river)
-        mu_global = np.mean(data)
-        sigma_global = np.std(data)
-        skew_global = np.mean(data ** 3)
-        kurt_global = np.mean(data ** 4)
 
-        # 2. Define Constraints Matrix (LHS) and Bounds (RHS)
-        # We solve for probabilities p_i on the grid z_i
-        # Variables: p = [p_0, p_1, ..., p_n]
+        # ---- input cleanup ----
+        x = np.asarray(data, dtype=float).reshape(-1)
+        x = x[np.isfinite(x)]
+        if x.size < 10:
+            return RobustBounds(1 - float(alpha), 0.0, 0.0, "InsufficientData", 0.0)
 
-        # Base Constraints:
-        # Sum(p) = 1
-        # Sum(p * z) = mu
-        # Sum(p * z^2) = sigma^2 + mu^2 (Second raw moment)
+        alpha = float(alpha)
+        if not (0.0 < alpha < 0.5):
+            # we only support a meaningful left tail probability (e.g., 0.01..0.10)
+            return RobustBounds(1 - alpha, 0.0, 0.0, "BadAlpha", 0.0)
 
-        A_eq = []
-        b_eq = []
+        n = self.n_points
+        z = self.z_grid
 
-        # Constraint 0: Probability sums to 1
-        A_eq.append(np.ones(self.n_points))
-        b_eq.append(1.0)
+        # ---- global raw moments of Z ----
+        mu = float(np.mean(x))
+        m2 = float(np.mean(x ** 2))
+        m3 = float(np.mean(x ** 3))
 
-        # Constraint 1: Mean (First Moment)
-        A_eq.append(self.z_grid)
-        b_eq.append(mu_global)
+        # ---- equality constraints for p: sum p =1, sum p z = mu, sum p z^2 = m2, sum p z^3 = m3 ----
+        A_eq_p = np.vstack([
+            np.ones(n, dtype=float),
+            z.astype(float),
+            (z ** 2).astype(float),
+            (z ** 3).astype(float),
+        ])
+        b_eq_p = np.array([1.0, mu, m2, m3], dtype=float)
 
-        # Constraint 2: Second Moment
-        A_eq.append(self.z_grid ** 2)
-        b_eq.append(sigma_global ** 2 + mu_global ** 2)
+        # ---- optional relaxed tail-anchor inequalities (on p only) ----
+        # tail is LEFT tail of returns: Z <= q_alpha
+        A_ub_extra_rows: List[np.ndarray] = []
+        b_ub_extra: List[float] = []
+        dmp_type = "Standard"
 
-        # Constraint 3: Skewness (Third Moment)
-        A_eq.append(self.z_grid ** 3)
-        b_eq.append(skew_global)
-
-        # --- THE NAUMOVA IMPROVEMENT (DCMP) ---
         if use_conditional:
-            # We "anchor" the tail.
-            # Let's define the "Tail" as the worst q% of data.
-            # We check what the ACTUAL average loss is in that tail.
+            q = float(np.quantile(x, alpha))
+            tail = x[x <= q]
+            if tail.size > 0:
+                dmp_type = "Conditional (DCMP)"
+                cond_mean = float(np.mean(tail))
+                mask = (z <= q).astype(float)
 
-            # Find empirical threshold for the tail
-            threshold = np.quantile(data, alpha)
+                # Tail mass approx alpha:  alpha - tol <= sum mask*p <= alpha + tol
+                tol_mass = max(1e-6, abs(alpha) * float(tail_mass_tol))
 
-            # Get data in the tail
-            tail_data = data[data <= threshold]
+                A_ub_extra_rows.append(mask)
+                b_ub_extra.append(alpha + tol_mass)
 
-            if len(tail_data) > 0:
-                # Calculate Conditional Expectation E[Z | Z <= threshold]
-                cond_mean = np.mean(tail_data)
-                prob_mass = alpha  # Approximately
+                A_ub_extra_rows.append(-mask)
+                b_ub_extra.append(-(alpha - tol_mass))
 
-                # Constraint: Sum(p_i * z_i | z_i <= threshold) = cond_mean * prob_mass
-                # This prevents the solver from putting all mass at z = -10
+                # Tail first moment approx alpha * cond_mean:
+                #   target - tol <= sum (mask*z*p) <= target + tol
+                target = alpha * cond_mean
+                tol_mean = max(1e-6, abs(target) * float(tail_mean_rel_tol))
 
-                # Create a mask for grid points in the tail region
-                mask = (self.z_grid <= threshold).astype(float)
+                row = (mask * z).astype(float)
+                A_ub_extra_rows.append(row)
+                b_ub_extra.append(target + tol_mean)
 
-                # Row: sum(p_i * z_i * I(z_i <= thresh))
-                A_eq.append(self.z_grid * mask)
-                b_eq.append(cond_mean * prob_mass)
+                A_ub_extra_rows.append(-row)
+                b_ub_extra.append(-(target - tol_mean))
 
-                dmp_type = "DCMP (Naumova)"
-            else:
-                dmp_type = "Standard DMP (Fallback)"
+        use_extra = (use_conditional and len(A_ub_extra_rows) > 0)
+
+        # ---- build CVaR LP in variables [p (n), w (n)] ----
+        # objective: maximize sum w_i * (-z_i)  <=> minimize sum w_i * z_i
+        c = np.concatenate([np.zeros(n, dtype=float), z.astype(float)])
+
+        # equalities:
+        #   moment constraints on p
+        #   sum w = 1
+        A_eq = np.zeros((A_eq_p.shape[0] + 1, 2 * n), dtype=float)
+        b_eq = np.zeros(A_eq_p.shape[0] + 1, dtype=float)
+        A_eq[:A_eq_p.shape[0], :n] = A_eq_p
+        b_eq[:A_eq_p.shape[0]] = b_eq_p
+        A_eq[-1, n:] = 1.0
+        b_eq[-1] = 1.0
+
+        # inequalities:
+        #   alpha*w_i <= p_i  =>  -p_i + alpha*w_i <= 0
+        A_ub_base = np.zeros((n, 2 * n), dtype=float)
+        for i in range(n):
+            A_ub_base[i, i] = -1.0
+            A_ub_base[i, n + i] = alpha
+        b_ub_base = np.zeros(n, dtype=float)
+
+        # optional extra (tail anchor) inequalities on p only
+        if use_extra:
+            A_extra = np.zeros((len(A_ub_extra_rows), 2 * n), dtype=float)
+            for r_i, row in enumerate(A_ub_extra_rows):
+                A_extra[r_i, :n] = row
+            b_extra = np.array(b_ub_extra, dtype=float)
+
+            A_ub = np.vstack([A_ub_base, A_extra])
+            b_ub = np.concatenate([b_ub_base, b_extra])
         else:
-            dmp_type = "Standard DMP"
+            A_ub = A_ub_base
+            b_ub = b_ub_base
 
-        A_eq = np.vstack(A_eq)
-        b_eq = np.array(b_eq)
+        # bounds: p in [0,1], w in [0, +inf)
+        bounds = [(0.0, 1.0) for _ in range(n)] + [(0.0, None) for _ in range(n)]
 
-        # 3. Solve for Worst-Case VaR
-        # We want to find the largest 'v' such that Prob(Z <= v) >= alpha is plausible.
-        # But efficiently, we just use the WC-CVaR optimization directly.
-
-        # 4. Solve for Worst-Case CVaR (Expected Shortfall)
-        # Objective: Maximize E[ Loss ] in the tail.
-        # Since we are working with returns, "Loss" is negative Z.
-        # We want to Minimize Sum(p_i * z_i) over the worst alpha mass.
-
-        # However, purely maximizing tail loss with fixed moments is equivalent to
-        # minimizing the expected value of the tail outcomes.
-
-        # We approximate WC-CVaR by finding the worst expectation over the lower tail.
-        # Objective: Minimize sum(p_i * z_i * I(z_i < VaR_threshold))
-        # But we don't know VaR_threshold perfectly.
-        # A robust proxy: Minimize sum(p_i * z_i) weighted by tail probability.
-
-        # Let's minimize the First Moment (Mean) strictly on the negative side
-        # subject to the global constraints. This pushes mass as far left as possible.
-        c = self.z_grid.copy()  # Minimize Z (Maximize Loss)
-
-        # Bounds for p_i: [0, 1]
-        bounds = [(0, 1) for _ in range(self.n_points)]
-
-        try:
-            res = optimize.linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
-
-            if res.success:
-                # The solver found the "Worst Case Distribution" {p_i}
-                worst_dist = res.x
-
-                # Calculate VaR/CVaR on this worst-case distribution
-                cum_prob = np.cumsum(worst_dist)
-
-                # Find index where cumulative prob crosses alpha
-                idx = np.searchsorted(cum_prob, alpha)
-                wc_var = self.z_grid[idx]
-
-                # Calculate CVaR (Expected value of Z conditional on Z <= wc_var)
-                tail_probs = worst_dist[:idx + 1]
-                tail_vals = self.z_grid[:idx + 1]
-
-                if np.sum(tail_probs) > 0:
-                    wc_cvar = np.sum(tail_probs * tail_vals) / np.sum(tail_probs)
-                else:
-                    wc_cvar = wc_var
-
-                # Invert signs because these are "Returns" (Negative is bad)
-                # We usually report VaR/CVaR as positive losses
-                return RobustBounds(
-                    confidence_level=1 - alpha,
-                    wc_var=-wc_var,
-                    wc_cvar=-wc_cvar,
-                    dmp_type=dmp_type,
-                    gap=0.0  # Calculated later
-                )
+        def _solve_lp(with_extra: bool) -> OptimizeResult:
+            if with_extra and use_extra:
+                A_use = A_ub
+                b_use = b_ub
             else:
-                return RobustBounds(0.95, 0.0, 0.0, "Failed", 0.0)
+                A_use = A_ub_base
+                b_use = b_ub_base
 
-        except Exception as e:
-            print(f"DMP Solver Error: {e}")
-            return RobustBounds(0.95, 0.0, 0.0, "Error", 0.0)
+            return linprog(
+                c=c,
+                A_ub=A_use, b_ub=b_use,
+                A_eq=A_eq, b_eq=b_eq,
+                bounds=bounds,
+                method=solver_method,
+            )
+
+        # ---- solve (conditional first, fallback to standard) ----
+        res = _solve_lp(with_extra=True)
+        if (not res.success) and use_extra:
+            dmp_type = "Standard"
+            res = _solve_lp(with_extra=False)
+
+        if not res.success or res.x is None:
+            return RobustBounds(1 - alpha, 0.0, 0.0, "Failed", 0.0)
+
+        sol = res.x
+        p = np.clip(sol[:n], 0.0, None)
+        s = float(np.sum(p))
+        if s <= 0.0:
+            return RobustBounds(1 - alpha, 0.0, 0.0, "Failed", 0.0)
+        p = p / s
+
+        # ---- compute VaR and CVaR from p in the LEFT tail of Z ----
+        # Grid is already ascending. Compute CDF and find q_alpha (Z-quantile).
+        cdf = np.cumsum(p)
+        j = int(np.searchsorted(cdf, alpha, side="left"))
+        j = min(max(j, 0), n - 1)
+        q_alpha = float(z[j])
+
+        # CVaR_Z = E[Z | Z <= q_alpha] computed with partial mass at boundary
+        prev_cdf = float(cdf[j - 1]) if j > 0 else 0.0
+        tail_sum = float(np.sum(p[:j] * z[:j]))
+        take = max(0.0, alpha - prev_cdf)
+        tail_sum += take * q_alpha
+        cvar_z = tail_sum / alpha
+
+        # Convert to positive LOSS metrics (Loss = -Z)
+        wc_var = -q_alpha
+        wc_cvar = -cvar_z
+
+        # LP objective corresponds to maximizing CVaR of losses, so -res.fun is a valid CVaR bound too.
+        # Use the maximum of the two to be safe against discretization mismatch.
+        wc_cvar_lp = float(-res.fun) if np.isfinite(res.fun) else float("nan")
+        if np.isfinite(wc_cvar_lp):
+            wc_cvar = max(wc_cvar, wc_cvar_lp)
+
+        return RobustBounds(
+            confidence_level=1 - alpha,
+            wc_var=float(wc_var),
+            wc_cvar=float(wc_cvar),
+            dmp_type=dmp_type,
+            gap=0.0,
+        )

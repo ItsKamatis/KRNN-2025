@@ -3,6 +3,7 @@ torch
 numpy
 pandas
 scikit-learn
+scipy
 
 # Data processing
 TA-Lib
