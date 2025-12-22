@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Naumova DMP">
+    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Merge remote-tracking branch 'github/master'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;src/risk/moment_bounds.py">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -308,11 +308,38 @@
       <option name="project" value="LOCAL" />
       <updated>1766293323495</updated>
     </task>
-    <option name="localTasksCounter" value="19" />
+    <task id="LOCAL-00019" summary="Speed-up:&#10;GPU memory loading">
+      <option name="closed" value="true" />
+      <created>1766446225791</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1766446225791</updated>
+    </task>
+    <task id="LOCAL-00020" summary="Merge remote-tracking branch 'github/master'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;src/risk/moment_bounds.py">
+      <option name="closed" value="true" />
+      <created>1766446387400</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1766446387400</updated>
+    </task>
+    <option name="localTasksCounter" value="21" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="initial commit" />
@@ -322,7 +349,10 @@
     <MESSAGE value="Rigor Success" />
     <MESSAGE value="Finalizing" />
     <MESSAGE value="Naumova DMP" />
-    <option name="LAST_COMMIT_MESSAGE" value="Naumova DMP" />
+    <MESSAGE value="Speed-up:&#10;GPU memory loading" />
+    <MESSAGE value="Revert &quot;Naumova DMP&quot;&#10;&#10;This reverts commit 96900870" />
+    <MESSAGE value="Merge remote-tracking branch 'github/master'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;src/risk/moment_bounds.py" />
+    <option name="LAST_COMMIT_MESSAGE" value="Merge remote-tracking branch 'github/master'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;src/risk/moment_bounds.py" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -336,7 +366,7 @@
     </breakpoint-manager>
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/KRNN$main_pipeline.coverage" NAME="main_pipeline Coverage Results" MODIFIED="1766261225315" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/KRNN$main_pipeline.coverage" NAME="main_pipeline Coverage Results" MODIFIED="1766443814687" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/KRNN$data_collector_v5.coverage" NAME="data_collector_v5 Coverage Results" MODIFIED="1766254463936" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/data" />
     <SUITE FILE_PATH="coverage/KRNN$generate_report.coverage" NAME="generate_report Coverage Results" MODIFIED="1766261196242" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/utils" />
   </component>
