@@ -4,24 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="Naumova DMP">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config_v5.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config_v5.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/test.parquet" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/train.parquet" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/validation.parquet" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/main_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_pipeline.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/3_allocation_logic.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/4_prediction_accuracy.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/5_risk_bounds_gap.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/reports/comprehensive_summary.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/data/dataset_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/data/dataset_v5.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/data/features_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/data/features_v5.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/model/krnn_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/model/krnn_v5.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/risk/evt.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/risk/evt.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/risk/moment_bounds.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/risk/moment_bounds.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/trainer_v5.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/trainer_v5.py" afterDir="false" />
-    </list>
+    <list default="true" id="85089f33-9993-4c98-ac18-4c5ff11dcd04" name="Changes" comment="DCMP" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -80,7 +63,7 @@
     &quot;git-widget-placeholder&quot;: &quot;master&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;D:/PyCharmProjects/KRNN&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/PyCharmProjects/KRNN/src/risk&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -93,8 +76,8 @@
 }</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
-      <recent name="D:\PyCharmProjects\KRNN" />
       <recent name="D:\PyCharmProjects\KRNN\src\risk" />
+      <recent name="D:\PyCharmProjects\KRNN" />
       <recent name="D:\PyCharmProjects\KRNN\src\data" />
       <recent name="D:\PyCharmProjects\KRNN\src\utils" />
       <recent name="D:\PyCharmProjects\KRNN\src\model" />
@@ -187,7 +170,7 @@
       <workItem from="1766293304170" duration="23000" />
       <workItem from="1766352227444" duration="6000" />
       <workItem from="1766446703757" duration="1033000" />
-      <workItem from="1766447806098" duration="4157000" />
+      <workItem from="1766447806098" duration="7937000" />
     </task>
     <task id="LOCAL-00001" summary="initial commit">
       <option name="closed" value="true" />
@@ -333,7 +316,39 @@
       <option name="project" value="LOCAL" />
       <updated>1766293323495</updated>
     </task>
-    <option name="localTasksCounter" value="19" />
+    <task id="LOCAL-00019" summary="DCMP 2">
+      <option name="closed" value="true" />
+      <created>1766452776792</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1766452776792</updated>
+    </task>
+    <task id="LOCAL-00020" summary="Merge remote-tracking branch 'github/master'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;reports/3_allocation_logic.png&#10;#&#9;reports/4_prediction_accuracy.png&#10;#&#9;reports/5_risk_bounds_gap.png&#10;#&#9;src/utils/trainer_v5.py">
+      <option name="closed" value="true" />
+      <created>1766452885635</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1766452885635</updated>
+    </task>
+    <task id="LOCAL-00021" summary="Merge remote-tracking branch 'github/master'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;reports/3_allocation_logic.png&#10;#&#9;reports/4_prediction_accuracy.png&#10;#&#9;reports/5_risk_bounds_gap.png&#10;#&#9;src/utils/trainer_v5.py">
+      <option name="closed" value="true" />
+      <created>1766454825360</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1766454825360</updated>
+    </task>
+    <task id="LOCAL-00022" summary="DCMP">
+      <option name="closed" value="true" />
+      <created>1766454859284</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1766454859284</updated>
+    </task>
+    <option name="localTasksCounter" value="23" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -347,7 +362,10 @@
     <MESSAGE value="Rigor Success" />
     <MESSAGE value="Finalizing" />
     <MESSAGE value="Naumova DMP" />
-    <option name="LAST_COMMIT_MESSAGE" value="Naumova DMP" />
+    <MESSAGE value="DCMP 2" />
+    <MESSAGE value="Merge remote-tracking branch 'github/master'&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;reports/3_allocation_logic.png&#10;#&#9;reports/4_prediction_accuracy.png&#10;#&#9;reports/5_risk_bounds_gap.png&#10;#&#9;src/utils/trainer_v5.py" />
+    <MESSAGE value="DCMP" />
+    <option name="LAST_COMMIT_MESSAGE" value="DCMP" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -361,7 +379,7 @@
     </breakpoint-manager>
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/KRNN$main_pipeline.coverage" NAME="main_pipeline Coverage Results" MODIFIED="1766451497830" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/KRNN$main_pipeline.coverage" NAME="main_pipeline Coverage Results" MODIFIED="1766452997259" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/KRNN$data_collector_v5.coverage" NAME="data_collector_v5 Coverage Results" MODIFIED="1766254463936" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/data" />
     <SUITE FILE_PATH="coverage/KRNN$generate_report.coverage" NAME="generate_report Coverage Results" MODIFIED="1766261196242" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/utils" />
   </component>
