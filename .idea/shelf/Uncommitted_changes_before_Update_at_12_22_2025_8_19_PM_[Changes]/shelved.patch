@@ -1,0 +1,66 @@
+Index: reports/comprehensive_summary.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>=== KRNN RISK MANAGEMENT PIPELINE REPORT ===\r\n============================================\r\n\r\n--- PHASE 3: SYSTEMATIC SELECTION & ROBUST RISK ANALYSIS ---\r\nNote: 'WC-CVaR' is the Worst-Case Expected Shortfall derived via Linear Programming (DMP).\r\nTicker   Mu(%)    Vol(%)   Gamma    EVT-CVaR   WC-CVaR    Risk Gap  \r\n---------------------------------------------------------------------------\r\nBIIB     0.29     2.47     0.44     3.57       0.56       -3.02     \r\nADBE     0.29     2.47     0.48     4.87       1.71       -3.15     \r\nAMD      0.29     2.47     0.41     6.06       2.17       -3.89     \r\nABNB     0.29     2.47     0.31     3.60       2.10       -1.49     \r\nGOOGL    0.29     2.47     0.32     2.56       0.57       -1.99     \r\nGOOG     0.29     2.47     0.41     3.36       0.57       -2.79     \r\nAMZN     0.29     2.47     0.43     4.32       1.72       -2.60     \r\nAEP      0.29     2.47     0.42     3.16       0.54       -2.63     \r\nAMGN     0.29     2.47     0.44     2.90       0.54       -2.36     \r\nADI      0.29     2.47     0.28     2.47       0.56       -1.91     \r\n\r\n--- PHASE 4: OPTIMIZATION RESULTS ---\r\nObjective: Minimize CVaR (95%)\r\nTarget Daily Return: > 0.1431%\r\nOptimized Portfolio CVaR: 0.0281\r\n\r\nFinal Portfolio Allocation:\r\nTicker   Weight (%)   Tail Risk (Gamma)   \r\n--------------------------------------------------\r\nABNB     18.01        0.3116              \r\nADI      17.75        0.2752              \r\nBIIB     13.37        0.4440              \r\nAMD      10.27        0.4128              \r\nGOOGL    9.87         0.3203              \r\nGOOG     8.84         0.4090              \r\nAMZN     8.55         0.4339              \r\nAMGN     7.36         0.4367              \r\nAEP      3.98         0.4185              \r\nADBE     1.98         0.4802              \r\n\r\n--- PHASE 5: OUT-OF-SAMPLE DIAGNOSTICS (2024+) ---\r\nTest Set R-Squared: 0.0000\r\nCumulative Market Return:   0.00%\r\nCumulative Strategy Return: 0.00%\r\n
+===================================================================
+diff --git a/reports/comprehensive_summary.txt b/reports/comprehensive_summary.txt
+--- a/reports/comprehensive_summary.txt	(revision 178122fca581fe661e3353067f20ed2362a7e23d)
++++ b/reports/comprehensive_summary.txt	(date 1766451861802)
+@@ -5,35 +5,35 @@
+ Note: 'WC-CVaR' is the Worst-Case Expected Shortfall derived via Linear Programming (DMP).
+ Ticker   Mu(%)    Vol(%)   Gamma    EVT-CVaR   WC-CVaR    Risk Gap  
+ ---------------------------------------------------------------------------
+-BIIB     0.29     2.47     0.44     3.57       0.56       -3.02     
+-ADBE     0.29     2.47     0.48     4.87       1.71       -3.15     
+-AMD      0.29     2.47     0.41     6.06       2.17       -3.89     
+-ABNB     0.29     2.47     0.31     3.60       2.10       -1.49     
+-GOOGL    0.29     2.47     0.32     2.56       0.57       -1.99     
+-GOOG     0.29     2.47     0.41     3.36       0.57       -2.79     
+-AMZN     0.29     2.47     0.43     4.32       1.72       -2.60     
+-AEP      0.29     2.47     0.42     3.16       0.54       -2.63     
+-AMGN     0.29     2.47     0.44     2.90       0.54       -2.36     
+-ADI      0.29     2.47     0.28     2.47       0.56       -1.91     
++AXON     0.29     2.07     0.43     0.06       0.03       -0.03     
++IDXX     0.28     2.01     0.38     0.05       0.04       -0.01     
++MELI     0.27     2.59     0.28     0.05       0.03       -0.02     
++BIIB     0.26     1.63     0.43     0.04       0.02       -0.02     
++BKNG     0.24     1.67     0.30     0.04       0.02       -0.01     
++APP      0.24     3.35     0.38     0.06       0.04       -0.02     
++REGN     0.24     1.50     0.37     0.03       0.02       -0.01     
++GEHC     0.24     1.84     0.33     0.04       0.04       -0.01     
++ASML     0.22     1.87     0.36     0.05       0.04       -0.01     
++CDW      0.21     1.47     0.39     0.03       0.02       -0.01     
+ 
+ --- PHASE 4: OPTIMIZATION RESULTS ---
+ Objective: Minimize CVaR (95%)
+-Target Daily Return: > 0.1431%
+-Optimized Portfolio CVaR: 0.0281
++Target Daily Return: > 0.1340%
++Optimized Portfolio CVaR: 0.0212
+ 
+ Final Portfolio Allocation:
+ Ticker   Weight (%)   Tail Risk (Gamma)   
+ --------------------------------------------------
+-ABNB     18.01        0.3116              
+-ADI      17.75        0.2752              
+-BIIB     13.37        0.4440              
+-AMD      10.27        0.4128              
+-GOOGL    9.87         0.3203              
+-GOOG     8.84         0.4090              
+-AMZN     8.55         0.4339              
+-AMGN     7.36         0.4367              
+-AEP      3.98         0.4185              
+-ADBE     1.98         0.4802              
++CDW      17.78        0.3851              
++REGN     11.47        0.3702              
++GEHC     10.72        0.3272              
++AXON     10.32        0.4278              
++BIIB     9.36         0.4307              
++BKNG     9.20         0.3024              
++MELI     8.68         0.2779              
++ASML     8.52         0.3572              
++IDXX     7.40         0.3842              
++APP      6.56         0.3775              
+ 
+ --- PHASE 5: OUT-OF-SAMPLE DIAGNOSTICS (2024+) ---
+ Test Set R-Squared: 0.0000
