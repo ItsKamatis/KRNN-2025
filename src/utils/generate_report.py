@@ -24,7 +24,7 @@ class ReportGenerator:
 
     def plot_regime_clustering(self, mus, sigmas):
         """Visual Evidence of 'Mean Collapse'."""
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 6))
         plt.scatter(mus, sigmas, alpha=0.6, edgecolors='w', s=50)
 
         mu_mean = np.mean(mus)
@@ -47,7 +47,7 @@ class ReportGenerator:
         """
         Generates a Q-Q plot to visually confirm non-normality.
         """
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 6))
 
         # Compare residuals against Standard Normal
         stats.probplot(residuals, dist="norm", plot=plt)
@@ -95,7 +95,7 @@ class ReportGenerator:
         """Visual Evidence of Optimization Logic."""
         df = pd.DataFrame({'Ticker': tickers, 'Weight': weights, 'Gamma': gammas})
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 6))
         plt.scatter(df['Gamma'], df['Weight'], s=100, c=df['Weight'], cmap='viridis')
 
         for i, row in df.iterrows():
@@ -123,7 +123,7 @@ class ReportGenerator:
         ss_tot = np.sum((targets - np.mean(targets)) ** 2)
         r2 = 1 - (ss_res / ss_tot)
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 6))
         plt.scatter(targets, preds, alpha=0.1)
         min_val = min(targets.min(), preds.min())
         max_val = max(targets.max(), preds.max())

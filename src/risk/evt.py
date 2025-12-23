@@ -10,17 +10,18 @@ def get_standardized_residuals(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     device: str,
-    sigma_floor: float = 1e-3,
+    sigma_floor: float = 1e-3
 ) -> np.ndarray:
     """
     Calculates standardized residuals: Z = (y - mu) / sigma.
 
-    Notes:
-    - We clamp sigma from below to avoid inf/NaN residuals if sigma becomes tiny.
-    - We drop non-finite residuals before returning.
+    Notes
+    -----
+    - Uses a sigma floor to avoid exploding Z when sigma is tiny.
+    - Returns a 1D numpy array with non-finite values removed.
     """
     model.eval()
-    chunks = []
+    z_scores = []
 
     with torch.no_grad():
         for features, targets in dataloader:
@@ -31,25 +32,25 @@ def get_standardized_residuals(
 
             sigma_safe = sigma.clamp(min=float(sigma_floor))
             z = (targets - mu) / sigma_safe
-            chunks.append(z.detach().cpu().numpy())
 
-    if len(chunks) == 0:
+            z_scores.append(z.detach().cpu().numpy())
+
+    if len(z_scores) == 0:
         return np.array([], dtype=float)
 
-    out = np.concatenate(chunks).reshape(-1)
+    out = np.concatenate(z_scores).reshape(-1)
     out = out[np.isfinite(out)]
     return out
 
 
 class EVTEngine:
     """
-    Extreme Value Theory Engine for Risk Management.
+    Extreme Value Theory Engine for tail risk on standardized residuals Z.
 
-    Conventions (Z-space):
-      - Input residuals are standardized returns Z = (y - mu)/sigma
-      - Bad outcomes are in the LEFT tail of Z (negative values)
-      - We define losses as L = -Z (so large positive L means bad)
-      - VaR/ES returned by calculate_risk_metrics are positive LOSS metrics in Z-units.
+    Convention:
+      - Z is a standardized return residual (negative is bad).
+      - Loss is L = -Z (positive is bad).
+      - VaR/ES returned here are POSITIVE LOSSES in Z-units.
     """
 
     def __init__(self, tail_fraction: float = 0.10):
@@ -57,41 +58,39 @@ class EVTEngine:
 
     def analyze_tails(self, residuals: np.ndarray) -> Dict[str, float]:
         """
-        Estimate tail index (gamma) using the Hill estimator on LOSS = -Z.
-
-        Returns:
-          gamma: Hill tail index
-          threshold_loss: u (loss threshold)
-          n_samples: n
-          k_exceedances: k
+        Estimate tail index gamma using the Hill estimator on losses L = -Z.
         """
-        r = np.asarray(residuals, dtype=float).reshape(-1)
-        r = r[np.isfinite(r)]
-        if r.size < 10:
-            return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": float(r.size), "k_exceedances": 0.0}
+        residuals = np.asarray(residuals, dtype=float).reshape(-1)
+        residuals = residuals[np.isfinite(residuals)]
 
-        # Loss = -Z
-        losses = -r
+        if residuals.size < 10:
+            return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": float(residuals.size), "k_exceedances": 0.0}
+
+        losses = -residuals  # L = -Z
         losses = losses[np.isfinite(losses)]
         losses = np.sort(losses)[::-1]  # descending
 
         n = int(losses.size)
-        k = int(n * self.tail_fraction)
+        if n < 10:
+            return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": float(n), "k_exceedances": 0.0}
 
+        k = int(n * self.tail_fraction)
+        k = max(0, min(k, n - 1))
         if k < 5:
             return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": float(n), "k_exceedances": float(k)}
 
         threshold_loss = float(losses[k])
 
-        # Hill requires positive tail losses. If threshold <= 0, tail contains non-losses; filter.
+        # If threshold <= 0, tail contains non-loss values; restrict to positive losses
         if threshold_loss <= 0.0:
-            valid = losses[losses > 0.0]
-            if valid.size < 5:
-                return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": float(valid.size), "k_exceedances": 0.0}
+            valid_losses = losses[losses > 0.0]
+            if valid_losses.size < 5:
+                return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": float(valid_losses.size), "k_exceedances": 0.0}
 
-            losses = valid
+            losses = valid_losses
             n = int(losses.size)
             k = int(n * self.tail_fraction)
+            k = max(0, min(k, n - 1))
             if k < 5:
                 return {"gamma": 0.0, "threshold_loss": 0.0, "n_samples": float(n), "k_exceedances": float(k)}
 
@@ -105,8 +104,6 @@ class EVTEngine:
             return {"gamma": 0.0, "threshold_loss": threshold_loss, "n_samples": float(n), "k_exceedances": float(k)}
 
         gamma = float(np.mean(np.log(top) - np.log(threshold_loss)))
-        if not np.isfinite(gamma) or gamma < 0.0:
-            gamma = 0.0
 
         return {
             "gamma": gamma,
@@ -117,9 +114,11 @@ class EVTEngine:
 
     def calculate_risk_metrics(self, evt_params: Dict[str, float], confidence_level: float = 0.99) -> Dict[str, float]:
         """
-        Compute EVT VaR/ES for LOSS = -Z at confidence_level p (e.g. p=0.95).
+        Compute EVT VaR and ES for LOSS distribution L = -Z.
 
-        Returns positive loss metrics in Z-units.
+        Returns:
+          - VaR_p: positive loss at confidence p
+          - ES_p: positive expected shortfall at confidence p
         """
         p = float(confidence_level)
         gamma = float(evt_params.get("gamma", 0.0))
@@ -156,12 +155,13 @@ class EVTEngine:
         n_simulations: int,
         gamma: float,
         volatility: float,
-        expected_return: float,
+        expected_return: float
     ) -> np.ndarray:
         """
         Simulate future returns:
-          R_sim = mu_pred + sigma_pred * Z_sim
-        where Z_sim is heavy-tailed based on gamma.
+            R_sim = expected_return + volatility * Z_sim
+
+        Z_sim is drawn from a heavy-tailed distribution implied by gamma.
         """
         n_simulations = int(n_simulations)
         gamma = float(gamma)
