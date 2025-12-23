@@ -21,7 +21,8 @@ mlflow:
 # Data processing
 data:
   window_size: 60           # 60 days context
-  batch_size: 16            # CHANGED: Small batch size to add gradient noise and escape mean
+  batch_size: 512           # Larger batch to increase GPU memory use & throughput on 4090
+  inference_batch_size: 4096  # Phase-3 ticker scan: run fewer, larger batches
   features:
     - RSI
     - MACD
@@ -52,6 +53,11 @@ experiment:
 training:
   epochs: 100
   learning_rate: 0.0005
+  # Speed knobs (4090-friendly)
+  use_amp: true
+  amp_dtype: "bf16"         # 'bf16' (recommended on 4090) or 'fp16'
+  deterministic: false      # true = reproducible but slower (disables cuDNN benchmark)
+  compile: false            # try true on PyTorch 2.x (may help, can also hurt)
   early_stop_patience: 15
   gradient_clip: 1.0
   optimizer: "adam"

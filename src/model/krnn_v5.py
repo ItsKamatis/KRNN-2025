@@ -105,7 +105,9 @@ class KRNNRegressor(nn.Module):
 
         # Enforce positivity for Sigma using Softplus
         # Add epsilon to prevent division by zero in loss function
-        sigma = F.softplus(log_var) + 1e-6
+        sigma = F.softplus(log_var)
+        # Stabilize: prevent extremely small/large sigma which can cause inf/nan in NLL
+        sigma = sigma.clamp(min=1e-3, max=10.0)
 
         return mu, sigma
 

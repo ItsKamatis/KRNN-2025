@@ -41,7 +41,7 @@ class DiscreteConditionalMomentSolver:
             alpha: Risk level (e.g., 0.05 for 95% confidence).
             use_conditional: If True, adds constraints on the tail moments.
         """
-        # 1. Global Moments (The "Physics" of the river)
+        # 1. Global Moments
         mu_global = np.mean(data)
         sigma_global = np.std(data)
         skew_global = np.mean(data ** 3)
@@ -123,12 +123,12 @@ class DiscreteConditionalMomentSolver:
         # However, purely maximizing tail loss with fixed moments is equivalent to
         # minimizing the expected value of the tail outcomes.
 
-        # We approximate WC-CVaR by finding the worst expectation over the lower tail.
-        # Objective: Minimize sum(p_i * z_i * I(z_i < VaR_threshold))
+        # approximate WC-CVaR by finding the worst expectation over the lower tail.
+        # Minimize sum(p_i * z_i * I(z_i < VaR_threshold))
         # But we don't know VaR_threshold perfectly.
         # A robust proxy: Minimize sum(p_i * z_i) weighted by tail probability.
 
-        # Let's minimize the First Moment (Mean) strictly on the negative side
+        # minimize the First Moment (Mean) strictly on the negative side
         # subject to the global constraints. This pushes mass as far left as possible.
         c = self.z_grid.copy()  # Minimize Z (Maximize Loss)
 

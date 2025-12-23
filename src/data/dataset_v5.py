@@ -35,14 +35,34 @@ class StockDataset(Dataset):
         self.sequence_length = sequence_length
 
         # 1. Identify Feature Columns
-        self.feature_cols = [
-            col for col in features.columns
-            if col not in ['Date', 'Ticker', target_column]
-               and pd.api.types.is_numeric_dtype(features[col])
+        # Prefer the engineered, scale-invariant features if present.
+        preferred = [
+            'Log_Return', 'RSI', 'MACD_Rel', 'MACD_Sig_Rel',
+            'BB_Width', 'BB_Pos', 'ATR_Rel', 'Log_Volume'
         ]
+        present = [c for c in preferred if c in features.columns]
+
+        if len(present) >= 4:
+            self.feature_cols = present
+        else:
+            # Fallback: any numeric column except identifiers + target
+            self.feature_cols = [
+                col for col in features.columns
+                if col not in ['Date', 'Ticker', target_column]
+                   and pd.api.types.is_numeric_dtype(features[col])
+            ]
+
 
         # 2. Sort to ensure time coherence
         df_sorted = features.sort_values(by=['Ticker', 'Date']).reset_index(drop=True)
+        # 2.5 Sanitize: remove NaN/inf in features/target so training doesn't silently become NaN
+        df_sorted = df_sorted.replace([np.inf, -np.inf], np.nan)
+        before = len(df_sorted)
+        df_sorted = df_sorted.dropna(subset=self.feature_cols + [target_column])
+        dropped = before - len(df_sorted)
+        if dropped > 0:
+            logger.warning(f"Dropped {dropped:,} rows with non-finite values in features/target.")
+
 
         # 3. Pre-allocate lists to hold the Tensors
         # Converting to numpy first is much faster than iterating rows
@@ -57,6 +77,10 @@ class StockDataset(Dataset):
             # Extract numpy arrays for this ticker
             group_feats = group[self.feature_cols].values.astype(np.float32)
             group_targets = group[target_column].values.astype(np.float32)
+            # Guard against any lingering non-finite values (should be rare after dropna)
+            if not np.isfinite(group_feats).all() or not np.isfinite(group_targets).all():
+                continue
+
 
             num_samples = len(group)
             if num_samples <= sequence_length:
@@ -126,15 +150,21 @@ class DataModule:
         self.test_dataset = StockDataset(test_data, self.config.sequence_length)
 
     def get_dataloaders(self) -> Dict[str, DataLoader]:
+        # Note: On Windows, num_workers>0 can duplicate RAM due to spawn/pickle.
+        # Keep num_workers=0 unless you're sure it's stable.
+        kwargs_common = {
+            "batch_size": self.config.batch_size,
+            "num_workers": self.config.num_workers,
+            "pin_memory": self.config.pin_memory,
+            "persistent_workers": (self.config.num_workers > 0),
+        }
         return {
             'train': DataLoader(
                 self.train_dataset,
-                batch_size=self.config.batch_size,
                 shuffle=self.config.train_shuffle,
-                num_workers=self.config.num_workers,
-                pin_memory=self.config.pin_memory,
-                persistent_workers=(self.config.num_workers > 0)  # Keeps workers alive
+                drop_last=True,  # consistent batch shapes helps GPU kernels
+                **kwargs_common,
             ),
-            'val': DataLoader(self.val_dataset, batch_size=self.config.batch_size, shuffle=False),
-            'test': DataLoader(self.test_dataset, batch_size=self.config.batch_size, shuffle=False)
+            'val': DataLoader(self.val_dataset, shuffle=False, **kwargs_common),
+            'test': DataLoader(self.test_dataset, shuffle=False, **kwargs_common)
         }

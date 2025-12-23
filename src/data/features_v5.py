@@ -46,54 +46,77 @@ class FeatureEngineer:
         # Columns that will be fed into the model
         self.feature_cols: List[str] = []
         self.is_fitted = False
-
     def generate_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculates Technical Indicators and applies transformations.
-        Expected input: DataFrame with Open, High, Low, Close, Volume.
+        Calculates technical indicators and transformations.
+
+        Expected input columns: Open, High, Low, Close, Volume.
+        Output includes:
+          - engineered features (self.feature_cols)
+          - Log_Return
+          - Target (next-step Log_Return)
         """
-        # Copy to avoid warnings
         df = df.copy()
 
-        # 1. Basic Indicators (TA-Lib)
-        # RSI (Momentum)
-        df['RSI'] = talib.RSI(df['Close'], timeperiod=14)
+        eps = 1e-12
 
-        # MACD (Trend) - Normalized by Close to be scale-invariant
-        macd, signal, _ = talib.MACD(df['Close'])
-        df['MACD_Rel'] = macd / df['Close']
-        df['MACD_Sig_Rel'] = signal / df['Close']
+        # Ensure numeric columns
+        for c in ['Open', 'High', 'Low', 'Close', 'Volume']:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        # Bollinger Bands (Volatility) - Relative Bandwidth
-        upper, middle, lower = talib.BBANDS(df['Close'])
-        df['BB_Width'] = (upper - lower) / middle
-        df['BB_Pos'] = (df['Close'] - lower) / (upper - lower)  # Position within band (0-1)
+        close = df['Close'].astype(float)
+        high = df['High'].astype(float)
+        low = df['Low'].astype(float)
+        vol = df['Volume'].astype(float)
 
-        # ATR (Volatility) - Relative
-        # Normalizing ATR by price allows comparing Volatility of $100 stock vs $10 stock
-        abs_atr = talib.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
-        df['ATR_Rel'] = abs_atr / df['Close']
+        # 1) RSI (Momentum)
+        df['RSI'] = talib.RSI(close, timeperiod=14)
 
-        # 2. Volume Log Transform
-        # Volume follows a power law; log makes it more Gaussian-like
-        df['Log_Volume'] = np.log1p(df['Volume'])
+        # 2) MACD (Trend), normalized by price to be scale-invariant
+        macd, signal, _ = talib.MACD(close)
+        denom_close = close.where(close.abs() > eps, np.nan)
+        df['MACD_Rel'] = macd / denom_close
+        df['MACD_Sig_Rel'] = signal / denom_close
 
-        # 3. Log Return (The Primary Signal)
-        df['Log_Return'] = np.log(df['Close'] / df['Close'].shift(1))
+        # 3) Bollinger Bands (Volatility/Mean-reversion)
+        upper, middle, lower = talib.BBANDS(close, timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
 
-        # 4. Target Generation (Shifted Return)
-        df['Target'] = df['Log_Return'].shift(-1)
+        bb_den = (upper - lower)
+        bb_den = np.where(np.abs(bb_den) > eps, bb_den, np.nan)
+        df['BB_Pos'] = (close - lower) / bb_den
 
-        # Drop NaNs created by lags
+        mid_den = np.where(np.abs(middle) > eps, middle, np.nan)
+        df['BB_Width'] = (upper - lower) / mid_den
+
+        # 4) ATR (Volatility), normalized by price
+        abs_atr = talib.ATR(high, low, close, timeperiod=14)
+        df['ATR_Rel'] = abs_atr / denom_close
+
+        # 5) Volume log transform
+        df['Log_Volume'] = np.log1p(vol)
+
+        # 6) Log returns (primary signal)
+        prev_close = close.shift(1)
+        valid_lr = (close.abs() > eps) & (prev_close.abs() > eps)
+        df['Log_Return'] = np.where(valid_lr, np.log(close / prev_close), np.nan)
+
+        # 7) Target = next-step return
+        df['Target'] = pd.Series(df['Log_Return']).shift(-1)
+
+        # Clean: drop NaN and +/-inf produced by indicators/divisions
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
         df.dropna(inplace=True)
 
-        # Define the feature set
-        # We explicitly exclude raw prices (Open/High/Low/Close) to ensure
-        # the model learns patterns, not price levels.
+        # Feature set (exclude raw prices to avoid learning price levels)
         self.feature_cols = [
             'Log_Return', 'RSI', 'MACD_Rel', 'MACD_Sig_Rel',
             'BB_Width', 'BB_Pos', 'ATR_Rel', 'Log_Volume'
         ]
+
+        # Final sanity: enforce finiteness for feature columns + target
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df.dropna(subset=self.feature_cols + ['Target'], inplace=True)
 
         return df
 
@@ -114,19 +137,12 @@ class FeatureEngineer:
         df = df.copy()
         df[self.feature_cols] = self.scaler.transform(df[self.feature_cols])
         return df
-
-    def _calculate_returns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate return-based features."""
+    def _calculate_returns(self, df: pd.DataFrame, window_size: int = 5) -> pd.DataFrame:
+        """Calculate return-based features (currently unused)."""
         features = pd.DataFrame(index=df.index)
-
-        # Log returns
-        features['LogReturn'] = np.log(df['Close'] / df['Close'].shift(1))
-
-        # Return volatility
-        features['ReturnVolatility'] = features['LogReturn'].rolling(
-            window=self.config.window_size, min_periods=1
-        ).std()
-
+        close = pd.to_numeric(df.get('Close'), errors='coerce')
+        features['LogReturn'] = np.log(close / close.shift(1))
+        features['ReturnVolatility'] = features['LogReturn'].rolling(window=window_size, min_periods=1).std()
         return features
 
 

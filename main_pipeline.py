@@ -22,16 +22,33 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def set_seed(seed=2304571):
+def set_seed(seed: int = 2304571, deterministic: bool = False):
+    """Seed RNGs and optionally force deterministic cuDNN.
+
+    For speed on RTX 4090, keep deterministic=False so we can enable:
+      - cuDNN benchmark (autotuner)
+      - TF32 matmul (fast fp32)
+    """
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    logger.info(f"Global Seed set to {seed}")
+
+    torch.backends.cudnn.deterministic = bool(deterministic)
+    torch.backends.cudnn.benchmark = not bool(deterministic)
+
+    # 4090: TF32 is a big speed win for RNN matmuls with minimal accuracy loss.
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        # PyTorch 2.x: nudges matmul kernels toward faster implementations
+        torch.set_float32_matmul_precision("high")
+    except Exception:
+        pass
+
+    logger.info(f"Global Seed set to {seed} (deterministic={deterministic})")
 
 
 def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
@@ -50,16 +67,22 @@ def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
 
 def run_project_pipeline():
     # --- Step 0: Robustness & Init ---
-    set_seed(42)
     print("\n[Phase 0] Initializing Pipeline & Checking Data...")
     config_dict = initialize_data_pipeline("config_v5.yaml")
+
+    # Speed vs reproducibility toggle
+    deterministic = bool(config_dict.get('training', {}).get('deterministic', False))
+    set_seed(42, deterministic=deterministic)
+
     reporter = ReportGenerator(output_dir="./reports")
 
     # --- Step 1: Data Loading ---
     print("\n[Phase 1] Loading Data Module (RAM Cache)...")
     data_config = DataConfig(
         sequence_length=config_dict['data']['window_size'],
-        batch_size=config_dict['data']['batch_size']
+        batch_size=config_dict['data']['batch_size'],
+        num_workers=int(config_dict.get('hardware', {}).get('num_workers', 0)),
+        pin_memory=bool(config_dict.get('hardware', {}).get('pin_memory', True)),
     )
     data_module = DataModule(data_config)
     data_module.setup(Path(config_dict['paths']['data']))
@@ -77,6 +100,15 @@ def run_project_pipeline():
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
     model = KRNNRegressor(model_config)
+
+    # Optional: torch.compile can help reduce Python overhead (PyTorch 2.x)
+    if bool(config_dict.get('training', {}).get('compile', False)) and model_config.device.startswith('cuda'):
+        try:
+            model = torch.compile(model, mode="max-autotune")
+            logger.info("torch.compile enabled (mode=max-autotune)")
+        except Exception as e:
+            logger.warning(f"torch.compile failed, continuing without it: {e}")
+
     trainer = Trainer(model, config=config_dict)
     training_metrics = trainer.train(train_loader=dataloaders['train'], val_loader=dataloaders['val'])
     print(f"Training Complete. Final Val GNLL: {training_metrics.get('loss', 'N/A')}")
@@ -96,28 +128,58 @@ def run_project_pipeline():
 
     model.eval()
 
+    # Inference settings (higher batch -> more GPU memory -> higher throughput)
+    infer_bs = int(config_dict.get('data', {}).get('inference_batch_size', max(1024, data_config.batch_size * 16)))
+    use_amp_infer = bool(config_dict.get('training', {}).get('use_amp', True)) and model_config.device.startswith('cuda')
+    amp_dtype = str(config_dict.get('training', {}).get('amp_dtype', 'bf16')).lower()
+    infer_dtype = torch.bfloat16 if amp_dtype == 'bf16' else torch.float16
+
     # --- 3a. Inference & Alpha Scan ---
     for ticker in all_tickers:
         ticker_df = val_df[val_df['Ticker'] == ticker].copy()
         if len(ticker_df) < data_config.sequence_length + 20:
             continue
         ticker_ds = StockDataset(ticker_df, data_config.sequence_length)
-        ticker_loader = DataLoader(ticker_ds, batch_size=64, shuffle=False)
-        mus, sigmas, targets = [], [], []
-        with torch.no_grad():
-            for feat, targ in ticker_loader:
-                feat = feat.to(model_config.device)
-                mu, sigma = model(feat)
-                mus.append(mu.cpu().numpy())
-                sigmas.append(sigma.cpu().numpy())
-                targets.append(targ.cpu().numpy())
-        mus = np.concatenate(mus)
-        sigmas = np.concatenate(sigmas)
-        targets = np.concatenate(targets)
+        ticker_loader = DataLoader(
+            ticker_ds,
+            batch_size=infer_bs,
+            shuffle=False,
+            num_workers=data_config.num_workers,
+            pin_memory=data_config.pin_memory,
+            persistent_workers=(data_config.num_workers > 0),
+        )
 
-        avg_pred_return = np.mean(mus)
-        avg_pred_volatility = np.mean(sigmas)
-        residuals = (targets.flatten() - mus.flatten()) / (sigmas.flatten() + 1e-6)
+        # Keep everything on GPU during the loop; transfer to CPU once per ticker.
+        device = model_config.device
+        sum_mu = torch.zeros((), device=device)
+        sum_sigma = torch.zeros((), device=device)
+        count = 0
+        residual_chunks = []
+
+        with torch.inference_mode():
+            for feat, targ in ticker_loader:
+                feat = feat.to(device, non_blocking=True)
+                targ = targ.to(device, non_blocking=True).squeeze(-1).float()
+
+                if use_amp_infer and device.startswith('cuda'):
+                    with torch.autocast(device_type='cuda', dtype=infer_dtype):
+                        mu, sigma = model(feat)
+                else:
+                    mu, sigma = model(feat)
+
+                sum_mu += mu.sum()
+                sum_sigma += sigma.sum()
+                count += mu.numel()
+
+                # Standardized residuals Z = (y - mu)/sigma
+                residual_chunks.append(((targ - mu) / (sigma + 1e-6)).detach())
+
+        if count == 0:
+            continue
+
+        avg_pred_return = float((sum_mu / count).item())
+        avg_pred_volatility = float((sum_sigma / count).item())
+        residuals = torch.cat(residual_chunks, dim=0).float().cpu().numpy()
 
         candidates.append({
             'Ticker': ticker,
@@ -150,10 +212,33 @@ def run_project_pipeline():
 
         evt_params = evt_engine.analyze_tails(residuals)
         gamma = evt_params['gamma']
-        evt_metrics = evt_engine.calculate_risk_metrics(evt_params)
 
-        dcmp_result = dcmp_solver.solve_dcmp(residuals, alpha=0.05, use_conditional=True)
-        risk_gap = dcmp_result.wc_cvar - evt_metrics['ES_0.99']
+        # Use ONE confidence level everywhere (EVT, DMP, optimizer)
+        # risk_conf is confidence (e.g. 0.95), alpha is tail prob (e.g. 0.05)
+        p = float(risk_conf)
+        alpha = 1.0 - p
+
+        evt_metrics = evt_engine.calculate_risk_metrics(evt_params, confidence_level=p)
+        dcmp_result = dcmp_solver.solve_dcmp(residuals, alpha=alpha, use_conditional=True)
+
+        # EVT/DMP are computed in Z-loss units (loss = -Z). Convert to RETURN-loss units:
+        # Loss(return) = -(mu + sigma*Z) = -mu + sigma * Loss(Z)
+        evt_es_z = evt_metrics.get(f"ES_{p}", 0.0)
+        evt_var_z = evt_metrics.get(f"VaR_{p}", 0.0)
+
+        dmp_es_z = dcmp_result.wc_cvar
+        dmp_var_z = dcmp_result.wc_var
+
+        mu_r = float(cand['Pred_Return'])
+        sig_r = float(cand['Pred_Vol'])
+
+        evt_es = (-mu_r) + (sig_r * float(evt_es_z))
+        evt_var = (-mu_r) + (sig_r * float(evt_var_z))
+
+        wc_es = (-mu_r) + (sig_r * float(dmp_es_z))
+        wc_var = (-mu_r) + (sig_r * float(dmp_var_z))
+
+        risk_gap = wc_es - evt_es
 
         tail_data[ticker] = {'gamma': gamma, 'residuals': residuals}
 
@@ -169,20 +254,34 @@ def run_project_pipeline():
 
         candidates_report_data.append({
             'Ticker': ticker,
-            'Mu': cand['Pred_Return'],
-            'Sigma': cand['Pred_Vol'],
+            'Mu': mu_r,
+            'Sigma': sig_r,
             'Gamma': gamma,
-            'ES': evt_metrics['ES_0.99'],
-            'WC_ES': dcmp_result.wc_cvar,
-            'Gap': risk_gap
+            # Return-unit risk (positive loss numbers). These are comparable across EVT/DMP/optimizer.
+            'VaR': evt_var,
+            'ES': evt_es,
+            'WC_VaR': wc_var,
+            'WC_ES': wc_es,
+            'Gap': risk_gap,
+            # For debugging: Z-unit tail losses
+            'VaR_Z': float(evt_var_z),
+            'ES_Z': float(evt_es_z),
+            'WC_VaR_Z': float(dmp_var_z),
+            'WC_ES_Z': float(dmp_es_z),
+            'Risk_Conf': float(p),
         })
 
         bounds_report_data.append({
-            'Ticker': ticker, 'EVT_CVaR': evt_metrics['ES_0.99'],
-            'DMP_CVaR': dcmp_result.wc_cvar, 'Gamma': gamma
+            'Ticker': ticker,
+            'EVT_CVaR': evt_es,
+            'DMP_CVaR': wc_es,
+            'EVT_VaR': evt_var,
+            'DMP_VaR': wc_var,
+            'Gamma': gamma,
+            'Risk_Conf': float(p),
         })
 
-        print(f"   - {ticker}: Gamma={gamma:.2f} | Gap={risk_gap:.2f}")
+        print(f"   - {ticker}: Gamma={gamma:.2f} | EVT-CVaR={evt_es:.4f} | WC-CVaR={wc_es:.4f} | Gap={risk_gap:.4f}")
 
     if hasattr(reporter, 'plot_risk_bounds_comparison'):
         reporter.plot_risk_bounds_comparison(bounds_report_data)
@@ -228,7 +327,7 @@ def run_project_pipeline():
     all_mus, all_targets = [], []
     with torch.no_grad():
         for feat, targ in test_loader:
-            feat = feat.to(model_config.device)
+            feat = feat.to(model_config.device, non_blocking=True)
             mu, _ = model(feat)
             all_mus.append(mu.cpu().numpy())
             all_targets.append(targ.cpu().numpy().flatten())
@@ -255,16 +354,12 @@ def run_project_pipeline():
     test_file = Path(config_dict['paths']['data']) / 'test.parquet'
     test_df = pd.read_parquet(test_file)
 
-    # 2. Pivot to get Returns Matrix (Date x Ticker)
-    # We use 'Log_Return' which is the target we engineered
-    returns_matrix = test_df.pivot(index='Date', columns='Ticker', values='Log_Return')
-
-    # --- POLISH: Rescale Z-Scores to Percentage Returns ---
-    # The data is currently in Z-scores (Std ~ 1.0).
-    # To generate realistic report metrics (e.g., Volatility ~20% instead of ~800%),
-    # we approximate the original scale by multiplying by a typical daily volatility (2%).
-    returns_matrix = returns_matrix * 0.02
-    # ------------------------------------------------------
+    # 2. Pivot to get REALIZED Returns Matrix (Date x Ticker)
+    # IMPORTANT:
+    #   - In the processed parquet, 'Log_Return' may be a scaled feature.
+    #   - 'Target' is the realized next-day log return used for training targets.
+    # For backtesting performance, use 'Target' (raw return units).
+    returns_matrix = test_df.pivot(index='Date', columns='Ticker', values='Target')
 
     # 3. Align Weights with Test Data
     # final_tickers and final_weights come from Phase 4
