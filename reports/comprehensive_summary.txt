@@ -5,37 +5,37 @@
 Note: 'WC-CVaR' is the Worst-Case Expected Shortfall derived via Linear Programming (DMP).
 Ticker   Mu(%)    Vol(%)   Gamma    EVT-CVaR   WC-CVaR    Risk Gap  
 ---------------------------------------------------------------------------
-AXON     0.25     2.06     0.42     0.06       0.06       0.00      
-IDXX     0.24     2.00     0.38     0.05       0.05       -0.01     
-MELI     0.24     2.59     0.28     0.05       0.05       -0.00     
-BIIB     0.22     1.62     0.44     0.04       0.03       -0.01     
-GEHC     0.21     1.83     0.32     0.04       0.04       0.00      
-BKNG     0.21     1.66     0.23     0.03       0.03       0.00      
-APP      0.21     3.35     0.37     0.06       0.06       -0.00     
-REGN     0.20     1.48     0.35     0.03       0.03       0.00      
-ASML     0.19     1.86     0.37     0.05       0.05       -0.00     
-GFS      0.18     2.55     0.41     0.07       0.06       -0.01     
+NVDA     0.11     2.87     0.28     0.05       0.05       -0.00     
+AAPL     0.09     1.32     0.53     0.04       0.03       -0.01     
+TSLA     -0.07    3.16     0.50     0.09       0.08       -0.02     
+TEAM     -0.07    3.06     0.45     0.09       0.08       -0.01     
+PANW     -0.07    2.09     0.40     0.06       0.06       -0.00     
+PDD      -0.06    3.06     0.40     0.07       0.06       -0.01     
+WBD      -0.06    3.13     0.36     0.08       0.09       0.01      
+TXN      0.06     1.50     0.33     0.04       0.04       -0.00     
+GEHC     0.06     1.68     0.30     0.04       0.04       0.00      
+ZS       -0.06    2.89     0.40     0.08       0.07       -0.00     
 
 --- PHASE 4: OPTIMIZATION RESULTS ---
 Objective: Minimize CVaR (95%)
-Target Daily Return: > 0.1164%
-Optimized Portfolio CVaR: 0.0213
+Target Daily Return: > 0.0338%
+Optimized Portfolio CVaR: 0.0290
 
 Final Portfolio Allocation:
 Ticker   Weight (%)   Tail Risk (Gamma)   
 --------------------------------------------------
-BKNG     33.30        0.2328              
-REGN     15.23        0.3499              
-ASML     12.45        0.3661              
-GEHC     8.08         0.3227              
-BIIB     7.69         0.4380              
-MELI     6.55         0.2785              
-IDXX     6.07         0.3822              
-AXON     5.82         0.4191              
-APP      3.20         0.3665              
-GFS      1.62         0.4068              
+GEHC     30.18        0.3044              
+TXN      28.68        0.3349              
+NVDA     12.91        0.2827              
+WBD      6.01         0.3582              
+TEAM     5.13         0.4488              
+TSLA     4.19         0.4981              
+PDD      3.93         0.3978              
+ZS       3.39         0.4003              
+PANW     3.07         0.3966              
+AAPL     2.51         0.5250              
 
 --- PHASE 5: OUT-OF-SAMPLE DIAGNOSTICS (2024+) ---
-Test Set R-Squared: -0.0285
-Cumulative Market Return:   42.47%
-Cumulative Strategy Return: 32.52%
+Test Set R-Squared: -0.0244
+Cumulative Market Return:   30.45%
+Cumulative Strategy Return: 27.46%

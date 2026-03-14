@@ -20,6 +20,10 @@ mlflow:
 
 # Data processing
 data:
+  source: "wrds"           # "wrds" (preferred) or "yfinance" fallback
+  universe_mode: "nasdaq100_current_members"  # or "static_ticker_list"
+  tickers: []              # used when universe_mode == static_ticker_list
+  dataset_cache_version: "wrds_split_adjusted_v1"
   window_size: 60           # 60 days context
   batch_size: 512           # Larger batch to increase GPU memory use & throughput on 4090
   inference_batch_size: 4096  # Phase-3 ticker scan: run fewer, larger batches
@@ -37,8 +41,29 @@ data:
     - Low
     - Close
   train_start: '2018-01-01'
+  end_date: null
   train_end: '2023-01-01'
   val_end: '2024-01-01'
+
+# WRDS / CRSP extraction
+wrds:
+  username_env: "WRDS_USERNAME"
+  username: ajcolmenar
+  password_env: "WRDS_PASSWORD"
+  password: null
+  verbose: false
+  schema: "crsp"
+  raw_cache_dir: "./data/raw"
+  universe_mode: "nasdaq100_current_members"
+  tickers: []
+  daily_table_candidates:
+    - dsf_v2
+    - dsf
+    - stkdlysecuritydata
+  names_table_candidates:
+    - stksecurityinfohist
+    - stocknames
+    - dsenames
 
 # Experiment tracking
 experiment:

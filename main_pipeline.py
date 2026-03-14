@@ -5,6 +5,7 @@ import yaml
 import logging
 import random
 import os
+import json
 from torch.utils.data import DataLoader
 from pathlib import Path
 
@@ -39,10 +40,28 @@ def initialize_data_pipeline(config_path: str = "config_v5.yaml"):
         config = yaml.safe_load(f)
     data_dir = Path(config['paths']['data'])
     required_files = ['train.parquet', 'validation.parquet', 'test.parquet']
-    if all((data_dir / f).exists() for f in required_files):
-        logger.info("Data files found. Skipping download.")
-        return config
-    logger.info("Data files missing. Starting Data Collection...")
+    manifest_path = data_dir / 'dataset_manifest.json'
+    desired_source = str(config.get('data', {}).get('source', 'yfinance')).lower()
+    desired_cache_version = str(config.get('data', {}).get('dataset_cache_version', 'v1'))
+
+    if all((data_dir / f).exists() for f in required_files) and manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        cached_source = str(manifest.get('source', '')).lower()
+        cached_cache_version = str(manifest.get('dataset_cache_version', ''))
+        if cached_source == desired_source and cached_cache_version == desired_cache_version:
+            logger.info("Data files found for source='%s'. Skipping collection.", desired_source)
+            return config
+        logger.info(
+            "Data files found, but cached source/version='%s'/'%s' differs from requested '%s'/'%s'. Rebuilding dataset.",
+            cached_source,
+            cached_cache_version,
+            desired_source,
+            desired_cache_version,
+        )
+    elif all((data_dir / f).exists() for f in required_files):
+        logger.info("Data files found but dataset_manifest.json is missing. Rebuilding dataset for source='%s'.", desired_source)
+
+    logger.info("Starting Data Collection...")
     collector = DataCollector(config)
     collector.collect_data()
     return config
@@ -54,6 +73,9 @@ def run_project_pipeline():
     print("\n[Phase 0] Initializing Pipeline & Checking Data...")
     config_dict = initialize_data_pipeline("config_v5.yaml")
     reporter = ReportGenerator(output_dir="./reports")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    config_dict['device'] = device
+    logger.info("Pipeline device set to %s", device)
 
     # --- Step 1: Data Loading ---
     print("\n[Phase 1] Loading Data Module (RAM Cache)...")
@@ -74,7 +96,7 @@ def run_project_pipeline():
         k_dups=3,
         output_dim=2,
         dropout=config_dict['model']['dropout'],
-        device="cuda" if torch.cuda.is_available() else "cpu"
+        device=device
     )
     model = KRNNRegressor(model_config)
     trainer = Trainer(model, config=config_dict)
